@@ -29,7 +29,7 @@ import {
   type CreateConnectionFormData,
 } from '../schemas';
 import { useAuthStore } from '../store/auth.store';
-import { cn, timeAgo } from '../lib/utils';
+import { cn, formatApiError, timeAgo } from '../lib/utils';
 
 const STATUS_META: Record<
   ConnectionStatus,
@@ -239,6 +239,9 @@ function ConnectionCard({
 
 function CreateConnectionModal({ onClose }: { onClose: () => void }) {
   const createConn = useCreateConnection();
+  const errDisplay = createConn.error
+    ? formatApiError(createConn.error)
+    : null;
 
   const {
     register,
@@ -248,8 +251,13 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
     resolver: zodResolver(CreateConnectionSchema),
   });
 
+  const handleClose = () => {
+    createConn.reset();
+    onClose();
+  };
+
   const onSubmit = (data: CreateConnectionFormData) => {
-    createConn.mutate(data, { onSuccess: onClose });
+    createConn.mutate(data, { onSuccess: handleClose });
   };
 
   return (
@@ -257,7 +265,7 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
       <div
         role="presentation"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
       <div className="relative bg-slate-900 border border-slate-700/50 rounded-2xl w-full max-w-md p-6 shadow-2xl shadow-black/50">
         <div className="flex items-center justify-between mb-6">
@@ -269,7 +277,7 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
           >
             <X className="w-4 h-4" />
@@ -318,17 +326,24 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          {createConn.error && (
-            <p className="text-red-400 text-xs flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-              Erro ao criar conexão. O nome da instância pode já estar em uso.
-            </p>
+          {errDisplay && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 space-y-1.5">
+              <p className="text-red-400 text-xs flex items-start gap-1.5 leading-relaxed">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>{errDisplay.message}</span>
+              </p>
+              {errDisplay.hint && (
+                <p className="text-slate-400 text-xs pl-5 leading-relaxed">
+                  {errDisplay.hint}
+                </p>
+              )}
+            </div>
           )}
 
           <div className="flex gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 py-2.5 bg-slate-800 border border-slate-700 text-slate-300 hover:text-white rounded-lg text-sm transition-all"
             >
               Cancelar

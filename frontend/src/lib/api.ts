@@ -1,6 +1,14 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+/** Em dev, `/api/v1` usa o proxy do Vite → backend :3000 (evita CORS e REFUSED se só o Vite estiver exposto). */
+function resolveApiBaseUrl(): string {
+  const fromEnv = import.meta.env.VITE_API_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+  if (import.meta.env.DEV) return '/api/v1';
+  return 'http://localhost:3000/api/v1';
+}
+
+const API_URL = resolveApiBaseUrl();
 
 let isRefreshing = false;
 let failedQueue: Array<{

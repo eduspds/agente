@@ -46,6 +46,39 @@ export interface Message {
   processed: boolean;
 }
 
+/** Mensagem na listagem paginada GET /leads/:id/messages */
+export interface MessageItem {
+  id: string;
+  body: string;
+  fromMe: boolean;
+  timestamp: string;
+  processed: boolean;
+}
+
+/** Última análise de IA devolvida junto às mensagens */
+export interface AiInsight {
+  id: string;
+  intent: Intent;
+  sentiment: Sentiment;
+  confidenceScore: number;
+  extractedFields: {
+    name: string | null;
+    plate: string | null;
+    email: string | null;
+  };
+  summary: string;
+  missingFields: string[];
+  promptVersion: number;
+  createdAt: string;
+}
+
+export interface MessagesResponse {
+  data: MessageItem[];
+  nextCursor: string | null;
+  total: number;
+  latestAnalysis: AiInsight | null;
+}
+
 export interface User {
   id: string;
   email: string;

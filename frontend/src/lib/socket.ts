@@ -1,14 +1,23 @@
 import { io, Socket } from 'socket.io-client';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'http://localhost:3000';
+/** Em dev, mesma origem do Vite para o proxy WebSocket em vite.config. */
+function resolveWsUrl(): string {
+  const fromEnv = import.meta.env.VITE_WS_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return 'http://localhost:3000';
+}
 
 let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
     const token = localStorage.getItem('accessToken');
+    const wsUrl = resolveWsUrl();
 
-    socket = io(WS_URL, {
+    socket = io(wsUrl, {
       auth: { token },
       reconnection: true,
       reconnectionAttempts: 10,

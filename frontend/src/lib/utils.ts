@@ -1,6 +1,73 @@
 import { type ClassValue, clsx } from 'clsx';
+import axios from 'axios';
 import { twMerge } from 'tailwind-merge';
 import type { LeadStatus, Sentiment } from '../types/models';
+
+/** Resposta JSON típica do GlobalExceptionFilter (Nest). */
+function nestMessageFromData(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+  const m = (data as { message?: unknown }).message;
+  if (Array.isArray(m)) return m.map(String).join(', ');
+  if (typeof m === 'string') return m;
+  return '';
+}
+
+export interface ApiErrorDisplay {
+  message: string;
+  hint?: string;
+}
+
+/** Mensagem legível para erros de API (Axios), alinhada ao backend Nest. */
+export function formatApiError(error: unknown): ApiErrorDisplay {
+  if (!axios.isAxiosError(error)) {
+    return {
+      message:
+        error instanceof Error ? error.message : 'Ocorreu um erro inesperado.',
+    };
+  }
+
+  if (!error.response) {
+    const code = error.code;
+    if (code === 'ECONNABORTED') {
+      return { message: 'Tempo esgotado ao contactar o servidor.' };
+    }
+    return {
+      message:
+        'Não foi possível contactar o servidor. Verifique se a API está a correr e se VITE_API_URL aponta para o endereço certo.',
+    };
+  }
+
+  const status = error.response.status;
+  const msg = nestMessageFromData(error.response.data);
+
+  if (status >= 500) {
+    return {
+      message:
+        msg ||
+        'Erro no servidor. Tente novamente mais tarde ou contacte o suporte.',
+    };
+  }
+
+  if (status === 409) {
+    const primary =
+      msg ||
+      'Já existe uma conexão com este nome de instância neste tenant.';
+    const genericDuplicate =
+      /Registro duplicado|violação de constraint|constraint única/i.test(
+        primary,
+      ) && !/instância|instanceName/i.test(primary);
+    return {
+      message: primary,
+      hint: genericDuplicate
+        ? 'Na criação de conexões, isto costuma indicar que o nome da instância já está em uso. Escolha outro nome ou remova a conexão existente.'
+        : undefined,
+    };
+  }
+
+  return {
+    message: msg || `Pedido falhou (${status}).`,
+  };
+}
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));

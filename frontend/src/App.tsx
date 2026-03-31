@@ -9,6 +9,7 @@ import { Settings } from './pages/Settings';
 import { Users } from './pages/Users';
 import { Connections } from './pages/Connections';
 import { AiConfig } from './pages/AiConfig';
+import { Messaging } from './pages/Messaging';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -46,6 +47,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="leads" element={<Leads />} />
+          <Route path="mensageria" element={<Messaging />} />
           <Route path="leads/:id" element={<ConversationDetail />} />
           <Route path="users" element={<Users />} />
           <Route path="connections" element={<Connections />} />
