@@ -24,6 +24,7 @@ import {
   UpdateLeadDtoSwagger,
   UpdateLeadSchema,
 } from './dto/lead.dto';
+import { GetMessagesDtoSchema } from './dto/get-messages.dto';
 import { JwtPayload } from '../../common/guards/tenant.guard';
 
 @ApiTags('leads')
@@ -48,6 +49,33 @@ export class LeadsController {
       );
     }
     return this.leadsService.findAll(req.tenantId as string, result.data);
+  }
+
+  @Get(':id/messages')
+  @ApiOperation({ summary: 'Lista mensagens paginadas de um lead (cursor por timestamp)' })
+  @ApiQuery({ name: 'cursor', required: false, description: 'ID da mensagem mais antiga já carregada' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getMessages(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query() rawQuery: Record<string, string | string[] | undefined>,
+  ) {
+    const q: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawQuery)) {
+      if (typeof v === 'string') q[k] = v;
+      else if (Array.isArray(v) && v[0] !== undefined) q[k] = v[0];
+    }
+    const result = GetMessagesDtoSchema.safeParse(q);
+    if (!result.success) {
+      throw new BadRequestException(
+        result.error.errors.map((e) => e.message).join(', '),
+      );
+    }
+    return this.leadsService.getMessages(
+      id,
+      req.tenantId as string,
+      result.data,
+    );
   }
 
   @Get(':id')

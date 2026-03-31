@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -7,6 +8,10 @@ import { AuditService } from '../audit/audit.service';
 import { PipelineService } from '../pipeline/pipeline.service';
 import { MessageProducer } from '../queues/message.producer';
 import { UpdateLeadDto, LeadFiltersDto } from './dto/lead.dto';
+import {
+  GetMessagesDto,
+  PaginatedMessagesResponseDto,
+} from './dto/get-messages.dto';
 import { Lead, LeadStatus, Source } from '@prisma/client';
 
 @Injectable()
@@ -212,6 +217,128 @@ export class LeadsService {
     );
 
     return { queued: true };
+  }
+
+  /**
+   * Mensagens paginadas por cursor (timestamp).
+   * Sem cursor: bloco mais recente. Com cursor (id da mensagem mais antiga já carregada): mensagens mais antigas.
+   */
+  async getMessages(
+    leadId: string,
+    tenantId: string,
+    query: GetMessagesDto,
+  ): Promise<PaginatedMessagesResponseDto> {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
+      select: { id: true },
+    });
+    if (!lead) {
+      throw new NotFoundException('Lead não encontrado');
+    }
+
+    const limit = query.limit ?? 50;
+
+    let beforeTimestamp: Date | undefined;
+    if (query.cursor) {
+      const cur = await this.prisma.message.findFirst({
+        where: { id: query.cursor, leadId, tenantId },
+        select: { timestamp: true },
+      });
+      if (!cur) {
+        throw new BadRequestException('Cursor de mensagem inválido');
+      }
+      beforeTimestamp = cur.timestamp;
+    }
+
+    const where = {
+      leadId,
+      tenantId,
+      ...(beforeTimestamp && { timestamp: { lt: beforeTimestamp } }),
+    };
+
+    const [batch, total, latestAnalysis] = await Promise.all([
+      this.prisma.message.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        take: limit + 1,
+        select: {
+          id: true,
+          body: true,
+          fromMe: true,
+          timestamp: true,
+          processed: true,
+        },
+      }),
+      this.prisma.message.count({ where: { leadId, tenantId } }),
+      this.prisma.aiAnalysis.findFirst({
+        where: { leadId, tenantId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          intent: true,
+          sentiment: true,
+          confidenceScore: true,
+          extractedFields: true,
+          promptVersion: true,
+          createdAt: true,
+          parsedResult: true,
+        },
+      }),
+    ]);
+
+    const hasMore = batch.length > limit;
+    const slice = hasMore ? batch.slice(0, limit) : batch;
+    const chronological = [...slice].reverse();
+
+    const nextCursor =
+      hasMore && chronological.length > 0 ? chronological[0].id : null;
+
+    const parsed = latestAnalysis?.parsedResult as
+      | Record<string, unknown>
+      | null
+      | undefined;
+
+    const ex = latestAnalysis?.extractedFields as
+      | Record<string, unknown>
+      | null
+      | undefined;
+
+    return {
+      data: chronological.map((m) => ({
+        id: m.id,
+        body: m.body,
+        fromMe: m.fromMe,
+        timestamp: m.timestamp.toISOString(),
+        processed: m.processed,
+      })),
+      nextCursor,
+      total,
+      latestAnalysis: latestAnalysis
+        ? {
+            id: latestAnalysis.id,
+            intent: latestAnalysis.intent as
+              | 'NEGOCIACAO'
+              | 'SUPORTE'
+              | 'SOCIAL',
+            sentiment: latestAnalysis.sentiment as
+              | 'POSITIVO'
+              | 'NEUTRO'
+              | 'NEGATIVO',
+            confidenceScore: latestAnalysis.confidenceScore,
+            extractedFields: {
+              name: (ex?.name as string | null | undefined) ?? null,
+              plate: (ex?.plate as string | null | undefined) ?? null,
+              email: (ex?.email as string | null | undefined) ?? null,
+            },
+            summary: (parsed?.summary as string) ?? '',
+            missingFields: Array.isArray(parsed?.missingFields)
+              ? (parsed.missingFields as string[])
+              : [],
+            promptVersion: latestAnalysis.promptVersion,
+            createdAt: latestAnalysis.createdAt.toISOString(),
+          }
+        : null,
+    };
   }
 
   async getHistory(tenantId: string, id: string) {

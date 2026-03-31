@@ -12,6 +12,7 @@ export const UpdateLeadSchema = z.object({
       'QUALIFICADO',
       'DESQUALIFICADO',
       'ESPECIALISTA',
+      'PENDENTE_IDENTIFICACAO',
     ])
     .optional(),
   disqualifyReason: z.string().optional(),
@@ -48,7 +49,14 @@ export class UpdateLeadDtoSwagger {
   email?: string;
 
   @ApiPropertyOptional({
-    enum: ['NOVO', 'EM_QUALIFICACAO', 'QUALIFICADO', 'DESQUALIFICADO', 'ESPECIALISTA'],
+    enum: [
+      'NOVO',
+      'EM_QUALIFICACAO',
+      'QUALIFICADO',
+      'DESQUALIFICADO',
+      'ESPECIALISTA',
+      'PENDENTE_IDENTIFICACAO',
+    ],
   })
   status?: string;
 
