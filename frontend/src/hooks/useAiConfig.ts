@@ -35,7 +35,6 @@ export interface AiTriggerConfig {
 
 export interface AiConfig {
   id: string;
-  tenantId: string;
   provider: AiProviderConfig;
   model: AiModelConfig;
   prompt: AiPromptConfig;
@@ -46,7 +45,7 @@ export interface AiConfig {
 
 export type AiConfigDraft = Omit<
   AiConfig,
-  'id' | 'tenantId' | 'isActive' | 'updatedAt'
+  'id' | 'isActive' | 'updatedAt'
 >;
 
 export interface TestConnectionResult {

@@ -7,8 +7,8 @@ import {
   LogOut,
   Zap,
   MessageSquare,
+  Briefcase,
   Brain,
-  MessagesSquare,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useAuthStore } from '../../store/auth.store';
@@ -22,8 +22,8 @@ const NAV_ITEMS: {
   minRole?: Role;
 }[] = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'Leads', to: '/leads', icon: MessageSquare },
-  { label: 'Mensageria', to: '/mensageria', icon: MessagesSquare },
+  { label: 'Leads', to: '/leads', icon: Briefcase },
+  { label: 'Mensageria', to: '/mensageria', icon: MessageSquare },
   { label: 'Conexões', to: '/connections', icon: Smartphone, minRole: 'ADMIN' },
   { label: 'Config. IA', to: '/ai-config', icon: Brain, minRole: 'ADMIN' },
   { label: 'Usuários', to: '/users', icon: Users, minRole: 'ADMIN' },

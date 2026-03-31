@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
-import type { MessagesResponse } from '../types/models';
+import { api } from '@/lib/api';
+import type { MessagesResponse } from '@/types';
 
 export function useLeadMessages(leadId: string | null) {
   return useInfiniteQuery({

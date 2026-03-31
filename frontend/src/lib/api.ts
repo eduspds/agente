@@ -34,17 +34,12 @@ export const api: AxiosInstance = axios.create({
   },
 });
 
-// ─── Interceptor de request: injeta token e tenantId ─────────────────────────
+// ─── Interceptor de request: injeta token ────────────────────────────────────
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('accessToken');
-  const tenantId = localStorage.getItem('tenantId');
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-  }
-
-  if (tenantId) {
-    config.headers['X-Tenant-ID'] = tenantId;
   }
 
   return config;

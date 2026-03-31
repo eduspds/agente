@@ -5,8 +5,8 @@ import {
   RefreshCw,
   ArrowRight,
 } from 'lucide-react';
-import type { AiInsight, Lead } from '../../types/models';
-import { cn } from '../../lib/utils';
+import type { AiInsight, Lead } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface AiInsightPanelProps {
   insight: AiInsight | null;

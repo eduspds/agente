@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Search } from 'lucide-react';
-import type { Lead } from '../../types/models';
-import { cn } from '../../lib/utils';
+import type { Lead } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface ConversationListProps {
   leads: Lead[];

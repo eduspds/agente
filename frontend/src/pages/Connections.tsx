@@ -3,8 +3,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Smartphone,
-  Plus,
-  Trash2,
   RefreshCw,
   Wifi,
   WifiOff,
@@ -15,18 +13,22 @@ import {
   Clock,
   QrCode,
   Zap,
+  Settings2,
+  Trash2,
+  Send,
 } from 'lucide-react';
 import {
-  useConnections,
-  useCreateConnection,
-  useDeleteConnection,
-  useReconnect,
-  type WhatsAppConnection,
+  useWhatsAppSession,
+  useConfigureWhatsAppSession,
+  useResetWhatsAppSession,
+  useReconnectWhatsApp,
+  useSendWhatsAppMessage,
+  type WhatsAppSession,
   type ConnectionStatus,
-} from '../hooks/useConnections';
+} from '../hooks/useWhatsappSession';
 import {
-  CreateConnectionSchema,
-  type CreateConnectionFormData,
+  ConfigureWhatsAppSessionSchema,
+  type ConfigureWhatsAppSessionFormData,
 } from '../schemas';
 import { useAuthStore } from '../store/auth.store';
 import { cn, formatApiError, timeAgo } from '../lib/utils';
@@ -84,20 +86,38 @@ function QrDisplay({ qrCode }: { qrCode: string }) {
   );
 }
 
-function ConnectionCard({
-  conn,
+function SessionCard({
+  session,
   isAdmin,
+  canSend,
 }: {
-  conn: WhatsAppConnection;
+  session: WhatsAppSession;
   isAdmin: boolean;
+  canSend: boolean;
 }) {
   const [showQr, setShowQr] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const reconnect = useReconnect();
-  const deleteConn = useDeleteConnection();
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const reconnect = useReconnectWhatsApp();
+  const resetSession = useResetWhatsAppSession();
+  const sendMsg = useSendWhatsAppMessage();
 
-  const meta = STATUS_META[conn.status];
+  const meta = STATUS_META[session.status];
   const StatusIcon = meta.icon;
+
+  const {
+    register: registerSend,
+    handleSubmit: handleSendSubmit,
+    reset: resetSend,
+    formState: { errors: sendErrors },
+  } = useForm<{ to: string; text: string }>({
+    defaultValues: { to: '', text: '' },
+  });
+
+  const onSend = (data: { to: string; text: string }) => {
+    sendMsg.mutate(data, {
+      onSuccess: () => resetSend(),
+    });
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
@@ -108,9 +128,9 @@ function ConnectionCard({
               <Smartphone className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-white font-semibold">{conn.name}</h3>
+              <h3 className="text-white font-semibold">{session.name}</h3>
               <p className="text-slate-500 text-xs font-mono mt-0.5">
-                {conn.instanceName}
+                {session.instanceName}
               </p>
             </div>
           </div>
@@ -118,11 +138,11 @@ function ConnectionCard({
           <div
             className={cn(
               'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium',
-              conn.status === 'CONNECTED'
+              session.status === 'CONNECTED'
                 ? 'bg-emerald-500/10 border border-emerald-500/20'
-                : conn.status === 'QR_PENDING'
+                : session.status === 'QR_PENDING'
                   ? 'bg-blue-500/10 border border-blue-500/20'
-                  : conn.status === 'CONNECTING'
+                  : session.status === 'CONNECTING'
                     ? 'bg-amber-500/10 border border-amber-500/20'
                     : 'bg-red-500/10 border border-red-500/20',
             )}
@@ -131,14 +151,14 @@ function ConnectionCard({
               className={cn(
                 'w-1.5 h-1.5 rounded-full',
                 meta.dot,
-                conn.status === 'CONNECTING' && 'animate-pulse',
+                session.status === 'CONNECTING' && 'animate-pulse',
               )}
             />
             <StatusIcon
               className={cn(
                 'w-3.5 h-3.5',
                 meta.color,
-                conn.status === 'CONNECTING' && 'animate-spin',
+                session.status === 'CONNECTING' && 'animate-spin',
               )}
             />
             <span className={meta.color}>{meta.label}</span>
@@ -146,22 +166,22 @@ function ConnectionCard({
         </div>
 
         <div className="mt-4 flex items-center gap-6 text-xs text-slate-500">
-          {conn.phone && (
+          {session.phone && (
             <div className="flex items-center gap-1.5">
               <Wifi className="w-3 h-3" />
-              <span>{conn.phone}</span>
+              <span>{session.phone}</span>
             </div>
           )}
-          {conn.lastSeenAt && (
+          {session.lastSeenAt && (
             <div className="flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
-              <span>Visto {timeAgo(conn.lastSeenAt)}</span>
+              <span>Visto {timeAgo(session.lastSeenAt)}</span>
             </div>
           )}
         </div>
       </div>
 
-      {conn.status === 'QR_PENDING' && conn.qrCode && (
+      {session.status === 'QR_PENDING' && session.qrCode && (
         <div className="border-t border-slate-800 px-5 pb-5">
           <button
             type="button"
@@ -174,16 +194,59 @@ function ConnectionCard({
             </span>
             <span className="text-slate-500 text-xs">{showQr ? '▲' : '▼'}</span>
           </button>
-          {showQr && <QrDisplay qrCode={conn.qrCode} />}
+          {showQr && <QrDisplay qrCode={session.qrCode} />}
+        </div>
+      )}
+
+      {canSend && (
+        <div className="border-t border-slate-800 px-5 py-4 space-y-3 bg-slate-900/40">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+            Enviar mensagem
+          </p>
+          <form
+            onSubmit={handleSendSubmit(onSend)}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <input
+              {...registerSend('to', { required: true })}
+              placeholder="Número (ex: 5511999999999)"
+              className="flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500"
+            />
+            <input
+              {...registerSend('text', { required: true })}
+              placeholder="Texto"
+              className="flex-[2] px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500"
+            />
+            <button
+              type="submit"
+              disabled={sendMsg.isPending}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {sendMsg.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              Enviar
+            </button>
+          </form>
+          {(sendErrors.to || sendErrors.text) && (
+            <p className="text-red-400 text-xs">Preencha número e texto.</p>
+          )}
+          {sendMsg.isError && (
+            <p className="text-red-400 text-xs">
+              {formatApiError(sendMsg.error).message}
+            </p>
+          )}
         </div>
       )}
 
       {isAdmin && (
-        <div className="border-t border-slate-800 px-5 py-3 flex items-center gap-2 bg-slate-900/50">
-          {conn.status !== 'CONNECTED' && conn.status !== 'CONNECTING' && (
+        <div className="border-t border-slate-800 px-5 py-3 flex flex-wrap items-center gap-2 bg-slate-900/50">
+          {session.status !== 'CONNECTED' && session.status !== 'CONNECTING' && (
             <button
               type="button"
-              onClick={() => reconnect.mutate(conn.id)}
+              onClick={() => reconnect.mutate()}
               disabled={reconnect.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-all"
             >
@@ -193,41 +256,41 @@ function ConnectionCard({
                   reconnect.isPending && 'animate-spin',
                 )}
               />
-              Reconectar
+              Novo QR / reconectar
             </button>
           )}
 
-          <div className="flex-1" />
+          <div className="flex-1 min-w-[1rem]" />
 
-          {!showDeleteConfirm ? (
+          {!showResetConfirm ? (
             <button
               type="button"
-              onClick={() => setShowDeleteConfirm(true)}
+              onClick={() => setShowResetConfirm(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg text-xs transition-all"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Remover
+              Limpar sessão
             </button>
           ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-red-400">Confirmar remoção?</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-red-400">Resetar estado local?</span>
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => setShowResetConfirm(false)}
                 className="px-2 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded text-xs"
               >
                 Não
               </button>
               <button
                 type="button"
-                onClick={() => deleteConn.mutate(conn.id)}
-                disabled={deleteConn.isPending}
+                onClick={() => resetSession.mutate(undefined, { onSuccess: () => setShowResetConfirm(false) })}
+                disabled={resetSession.isPending}
                 className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-xs flex items-center gap-1"
               >
-                {deleteConn.isPending && (
+                {resetSession.isPending && (
                   <Loader2 className="w-3 h-3 animate-spin" />
                 )}
-                Sim, remover
+                Sim
               </button>
             </div>
           )}
@@ -237,27 +300,35 @@ function ConnectionCard({
   );
 }
 
-function CreateConnectionModal({ onClose }: { onClose: () => void }) {
-  const createConn = useCreateConnection();
-  const errDisplay = createConn.error
-    ? formatApiError(createConn.error)
-    : null;
+function ConfigureSessionModal({
+  session,
+  onClose,
+}: {
+  session: WhatsAppSession;
+  onClose: () => void;
+}) {
+  const configure = useConfigureWhatsAppSession();
+  const errDisplay = configure.error ? formatApiError(configure.error) : null;
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<CreateConnectionFormData>({
-    resolver: zodResolver(CreateConnectionSchema),
+  } = useForm<ConfigureWhatsAppSessionFormData>({
+    resolver: zodResolver(ConfigureWhatsAppSessionSchema),
+    defaultValues: {
+      name: session.name,
+      instanceName: session.instanceName,
+    },
   });
 
   const handleClose = () => {
-    createConn.reset();
+    configure.reset();
     onClose();
   };
 
-  const onSubmit = (data: CreateConnectionFormData) => {
-    createConn.mutate(data, { onSuccess: handleClose });
+  const onSubmit = (data: ConfigureWhatsAppSessionFormData) => {
+    configure.mutate(data, { onSuccess: handleClose });
   };
 
   return (
@@ -271,9 +342,9 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-              <Smartphone className="w-5 h-5 text-emerald-400" />
+              <Settings2 className="w-5 h-5 text-emerald-400" />
             </div>
-            <h2 className="text-lg font-semibold text-white">Nova conexão</h2>
+            <h2 className="text-lg font-semibold text-white">Sessão WhatsApp</h2>
           </div>
           <button
             type="button"
@@ -287,7 +358,7 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-              Nome da conexão
+              Nome exibido
             </label>
             <input
               {...register('name')}
@@ -301,11 +372,11 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-              Nome da instância
+              Nome da instância (Baileys)
             </label>
             <input
               {...register('instanceName')}
-              placeholder="ex: vendas-principal"
+              placeholder="ex: leadwatch"
               className="w-full px-3 py-2.5 bg-slate-800/60 border border-slate-700 rounded-lg text-white text-sm font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
             />
             {errors.instanceName && (
@@ -314,15 +385,14 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
               </p>
             )}
             <p className="text-xs text-slate-500">
-              Apenas letras minúsculas, números, hífens e sublinhados
+              Deve coincidir com a instância configurada no serviço Baileys.
             </p>
           </div>
 
           <div className="p-3 bg-blue-500/5 border border-blue-500/15 rounded-lg">
             <p className="text-xs text-blue-300 leading-relaxed">
-              Registro criado no LeadWatch. A integração com Baileys/Evolution pode
-              preencher QR e status; enquanto isso, use o webhook com o{' '}
-              <span className="font-mono">instanceName</span> correspondente.
+              Há apenas uma sessão global. Alterar o nome da instância dispara
+              estado de novo QR no painel.
             </p>
           </div>
 
@@ -350,13 +420,13 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="submit"
-              disabled={createConn.isPending}
+              disabled={configure.isPending}
               className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {createConn.isPending && (
+              {configure.isPending && (
                 <Loader2 className="w-4 h-4 animate-spin" />
               )}
-              Criar conexão
+              Salvar
             </button>
           </div>
         </form>
@@ -366,24 +436,25 @@ function CreateConnectionModal({ onClose }: { onClose: () => void }) {
 }
 
 export function Connections() {
-  const { data: connections, isLoading, isFetching } = useConnections();
+  const { data: session, isLoading, isFetching } = useWhatsAppSession();
   const { user } = useAuthStore();
-  const [showCreate, setShowCreate] = useState(false);
+  const [showConfigure, setShowConfigure] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
-  const connectedCount =
-    connections?.filter((c) => c.status === 'CONNECTED').length ?? 0;
-  const total = connections?.length ?? 0;
+  const canSend =
+    user?.role === 'ADMIN' || user?.role === 'AGENT';
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Conexões WhatsApp</h1>
+          <h1 className="text-2xl font-bold text-white">Sessão WhatsApp</h1>
           <p className="text-slate-400 text-sm mt-1">
             {isLoading
               ? 'Carregando…'
-              : `${connectedCount} de ${total} instância${total !== 1 ? 's' : ''} ativa${connectedCount !== 1 ? 's' : ''}`}
+              : session
+                ? `Instância única — ${STATUS_META[session.status].label.toLowerCase()}`
+                : '—'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -393,120 +464,51 @@ export function Connections() {
               Atualizando
             </div>
           )}
-          {isAdmin && (
+          {isAdmin && session && (
             <button
               type="button"
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-emerald-500/20"
+              onClick={() => setShowConfigure(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-xl text-sm font-medium transition-all"
             >
-              <Plus className="w-4 h-4" />
-              Nova conexão
+              <Settings2 className="w-4 h-4" />
+              Configurar
             </button>
           )}
         </div>
       </div>
 
-      {!isLoading && total > 0 && (
-        <div className="grid grid-cols-3 gap-4">
-          {(
-            [
-              {
-                label: 'Conectadas',
-                value:
-                  connections?.filter((c) => c.status === 'CONNECTED').length ??
-                  0,
-                color: 'text-emerald-400',
-                icon: Wifi,
-              },
-              {
-                label: 'Aguardando QR',
-                value:
-                  connections?.filter((c) => c.status === 'QR_PENDING').length ??
-                  0,
-                color: 'text-blue-400',
-                icon: QrCode,
-              },
-              {
-                label: 'Desconectadas',
-                value:
-                  connections?.filter((c) => c.status === 'DISCONNECTED')
-                    .length ?? 0,
-                color: 'text-red-400',
-                icon: WifiOff,
-              },
-            ] as const
-          ).map(({ label, value, color, icon: Icon }) => (
-            <div
-              key={label}
-              className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3"
-            >
-              <Icon className={cn('w-5 h-5', color)} />
-              <div>
-                <p className={cn('text-xl font-bold', color)}>{value}</p>
-                <p className="text-slate-500 text-xs">{label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {isLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-slate-900 border border-slate-800 rounded-2xl h-36 animate-pulse"
-            />
-          ))}
-        </div>
-      ) : total === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl py-20 flex flex-col items-center gap-4">
-          <div className="p-4 bg-slate-800 rounded-2xl">
-            <Smartphone className="w-10 h-10 text-slate-500" />
-          </div>
-          <div className="text-center">
-            <p className="text-white font-medium">Nenhuma conexão configurada</p>
-            <p className="text-slate-500 text-sm mt-1">
-              Adicione uma instância para organizar webhooks por{' '}
-              <span className="font-mono">instanceName</span>
-            </p>
-          </div>
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-medium transition-all mt-2"
-            >
-              <Plus className="w-4 h-4" />
-              Adicionar conexão
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {connections?.map((conn) => (
-            <ConnectionCard key={conn.id} conn={conn} isAdmin={isAdmin} />
-          ))}
-        </div>
-      )}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl h-36 animate-pulse" />
+      ) : session ? (
+        <SessionCard
+          session={session}
+          isAdmin={isAdmin}
+          canSend={canSend}
+        />
+      ) : null}
 
       <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/15 rounded-xl">
         <Zap className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <p className="text-amber-300 text-sm font-medium">
-            Sobre as conexões
-          </p>
+          <p className="text-amber-300 text-sm font-medium">Integração Baileys</p>
           <p className="text-amber-300/60 text-xs leading-relaxed">
-            O LeadWatch monitora conversas de forma passiva. O status é atualizado
-            a cada 10 segundos. Conecte seu serviço Baileys ao webhook e use o
-            header <span className="font-mono">X-Tenant-ID</span> com o ID do
-            tenant.
+            O webhook público é{' '}
+            <code className="font-mono text-amber-200/90">
+              /api/v1/webhooks/baileys
+            </code>{' '}
+            (HMAC{' '}
+            <span className="font-mono">x-baileys-signature</span>). Envio de
+            mensagens requer{' '}
+            <span className="font-mono">BAILEYS_MESSAGE_URL</span> no backend.
           </p>
         </div>
       </div>
 
-      {showCreate && (
-        <CreateConnectionModal onClose={() => setShowCreate(false)} />
+      {showConfigure && session && (
+        <ConfigureSessionModal
+          session={session}
+          onClose={() => setShowConfigure(false)}
+        />
       )}
     </div>
   );

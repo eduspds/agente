@@ -51,7 +51,7 @@ export function formatApiError(error: unknown): ApiErrorDisplay {
   if (status === 409) {
     const primary =
       msg ||
-      'Já existe uma conexão com este nome de instância neste tenant.';
+      'Já existe uma conexão com este nome de instância.';
     const genericDuplicate =
       /Registro duplicado|violação de constraint|constraint única/i.test(
         primary,

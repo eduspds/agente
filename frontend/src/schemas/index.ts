@@ -80,8 +80,8 @@ export const SettingsSchema = z.object({
 
 export type SettingsFormData = z.infer<typeof SettingsSchema>;
 
-// ─── Connections ──────────────────────────────────────────────────────────────
-export const CreateConnectionSchema = z.object({
+// ─── WhatsApp (sessão única) ─────────────────────────────────────────────────
+export const ConfigureWhatsAppSessionSchema = z.object({
   name: z.string().min(2, { message: 'Nome obrigatório' }).max(60),
   instanceName: z
     .string()
@@ -92,4 +92,6 @@ export const CreateConnectionSchema = z.object({
     }),
 });
 
-export type CreateConnectionFormData = z.infer<typeof CreateConnectionSchema>;
+export type ConfigureWhatsAppSessionFormData = z.infer<
+  typeof ConfigureWhatsAppSessionSchema
+>;

@@ -16,7 +16,6 @@ export type Source = 'AI' | 'HUMAN' | 'SYSTEM';
 
 export interface Lead {
   id: string;
-  tenantId: string;
   phone: string | null;
   name: string | null;
   plate: string | null;
@@ -84,7 +83,6 @@ export interface User {
   email: string;
   name: string;
   role: Role;
-  tenantId: string;
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;

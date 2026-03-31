@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
-export interface TenantSettings {
+export interface AppSettings {
   id: string;
   name: string;
   slug: string;
@@ -21,7 +21,7 @@ export function useSettings() {
   return useQuery({
     queryKey: ['settings'],
     queryFn: async () => {
-      const { data } = await api.get<TenantSettings>('/settings');
+      const { data } = await api.get<AppSettings>('/settings');
       return data;
     },
     staleTime: 60_000,
@@ -32,7 +32,7 @@ export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: UpdateSettingsPayload) => {
-      const { data } = await api.patch<TenantSettings>('/settings', payload);
+      const { data } = await api.patch<AppSettings>('/settings', payload);
       return data;
     },
     onSuccess: (data) => {

@@ -2,23 +2,26 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { useLeads, useReprocessLead } from '../hooks/useLeads';
-import { useLeadMessages } from '../hooks/useLeadMessages';
-import { api } from '../lib/api';
-import { getSocket } from '../lib/socket';
-import { ConversationList } from '../components/messaging/ConversationList';
-import { MessageThread } from '../components/messaging/MessageThread';
-import { AiInsightPanel } from '../components/messaging/AiInsightPanel';
-import type { Lead } from '../types/models';
+import { useLeads, useReprocessLead } from '@/hooks/useLeads';
+import { useLeadMessages } from '@/hooks/useLeadMessages';
+import { useSocket } from '@/hooks/useSocket';
+import { api } from '@/lib/api';
+import { formatApiError } from '@/lib/utils';
+import { ConversationList } from '@/components/messaging/ConversationList';
+import { MessageThread } from '@/components/messaging/MessageThread';
+import { AiInsightPanel } from '@/components/messaging/AiInsightPanel';
+import type { Lead } from '@/types';
 
 export function Messaging() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
-  const { data: leadsData, isLoading: leadsLoading } = useLeads({
-    limit: 50,
-  });
+  const { data: leadsData, isLoading: leadsLoading, isError: leadsError, error: leadsListError } =
+    useLeads({
+      limit: 50,
+      orderBy: 'lastMessageAt',
+    });
 
   const {
     data: messagesData,
@@ -26,15 +29,16 @@ export function Messaging() {
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
+    isError: messagesError,
+    error: messagesFetchError,
   } = useLeadMessages(selectedLead?.id ?? null);
 
   const messages =
     [...(messagesData?.pages ?? [])].reverse().flatMap((p) => p.data) ?? [];
   const latestAnalysis = messagesData?.pages[0]?.latestAnalysis ?? null;
 
-  useEffect(() => {
-    const socket = getSocket();
-    const onLeadUpdated = (updated: Lead) => {
+  const onLeadSocket = useCallback(
+    (updated: Lead) => {
       setSelectedLead((prev) =>
         prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
       );
@@ -42,12 +46,23 @@ export function Messaging() {
         queryKey: ['lead-messages', updated.id],
       });
       void queryClient.invalidateQueries({ queryKey: ['leads'] });
-    };
-    socket.on('lead:updated', onLeadUpdated);
-    return () => {
-      socket.off('lead:updated', onLeadUpdated);
-    };
-  }, [queryClient]);
+    },
+    [queryClient],
+  );
+
+  useSocket('lead:updated', onLeadSocket);
+
+  useEffect(() => {
+    if (!leadsError || !leadsListError) return;
+    const { message } = formatApiError(leadsListError);
+    toast.error(message, { id: 'messaging-leads-error' });
+  }, [leadsError, leadsListError]);
+
+  useEffect(() => {
+    if (!messagesError || !messagesFetchError) return;
+    const { message } = formatApiError(messagesFetchError);
+    toast.error(message, { id: 'lead-messages-fetch-error' });
+  }, [messagesError, messagesFetchError]);
 
   const reprocessLead = useReprocessLead();
 
@@ -114,7 +129,9 @@ export function Messaging() {
                 <p className="text-sm font-semibold text-slate-100 truncate">
                   {selectedLead.name ?? 'Sem nome'}
                 </p>
-                <p className="text-xs text-slate-500">{selectedLead.phone ?? '—'}</p>
+                <p className="text-xs text-slate-500">
+                  {selectedLead.phone ?? '—'}
+                </p>
               </div>
               <button
                 type="button"
@@ -158,3 +175,6 @@ export function Messaging() {
     </div>
   );
 }
+
+/** Alias da spec Fase 8.1 */
+export const MessagingPage = Messaging;

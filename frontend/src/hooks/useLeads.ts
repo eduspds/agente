@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
-import type { Lead, LeadStatus, PaginatedResponse } from '../types/models';
+import { api } from '@/lib/api';
+import type { Lead, LeadStatus, PaginatedResponse } from '@/types';
 
 interface LeadFilters {
   status?: LeadStatus;
@@ -8,6 +8,7 @@ interface LeadFilters {
   limit?: number;
   needsHumanReview?: boolean;
   search?: string;
+  orderBy?: 'priority' | 'lastMessageAt';
 }
 
 export function useLeads(filters: LeadFilters = {}) {
@@ -21,6 +22,7 @@ export function useLeads(filters: LeadFilters = {}) {
       if (filters.needsHumanReview !== undefined)
         params.set('needsHumanReview', String(filters.needsHumanReview));
       if (filters.search) params.set('search', filters.search);
+      if (filters.orderBy) params.set('orderBy', filters.orderBy);
 
       const { data } = await api.get<PaginatedResponse<Lead>>(
         `/leads?${params.toString()}`,

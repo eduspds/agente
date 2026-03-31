@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Bot, Loader2 } from 'lucide-react';
-import type { MessageItem } from '../../types/models';
-import { cn } from '../../lib/utils';
+import type { MessageItem } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface MessageThreadProps {
   messages: MessageItem[];

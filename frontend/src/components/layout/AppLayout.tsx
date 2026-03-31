@@ -1,6 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { useSocket } from '../../hooks/useSocket';
+import { useSocket } from '@/hooks/useSocket';
 
 export function AppLayout() {
   useSocket();
