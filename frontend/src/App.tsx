@@ -7,6 +7,8 @@ import { Leads } from './pages/Leads';
 import { ConversationDetail } from './pages/ConversationDetail';
 import { Settings } from './pages/Settings';
 import { Users } from './pages/Users';
+import { Connections } from './pages/Connections';
+import { AiConfig } from './pages/AiConfig';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -14,11 +16,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
+  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route
+          path="/login"
+          element={
+            <PublicRoute>
+              <Login />
+            </PublicRoute>
+          }
+        />
+
         <Route
           path="/"
           element={
@@ -31,9 +47,12 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="leads" element={<Leads />} />
           <Route path="leads/:id" element={<ConversationDetail />} />
-          <Route path="settings" element={<Settings />} />
           <Route path="users" element={<Users />} />
+          <Route path="connections" element={<Connections />} />
+          <Route path="ai-config" element={<AiConfig />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
+
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

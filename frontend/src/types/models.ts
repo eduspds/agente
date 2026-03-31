@@ -52,6 +52,9 @@ export interface User {
   name: string;
   role: Role;
   tenantId: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuthResponse {

@@ -3,7 +3,7 @@ import { Sidebar } from './Sidebar';
 import { useSocket } from '../../hooks/useSocket';
 
 export function AppLayout() {
-  useSocket(); // Conecta ao WebSocket global
+  useSocket();
 
   return (
     <div className="flex h-screen bg-slate-950 overflow-hidden">

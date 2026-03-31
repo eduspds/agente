@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { LeadHistory, LeadWithMessages } from '../types/models';
+import type { LeadWithMessages, LeadHistory } from '../types/models';
 
 export function useLead(id: string) {
   return useQuery({
