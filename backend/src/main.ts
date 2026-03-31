@@ -28,7 +28,6 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: [
       'Authorization',
       'Content-Type',
-      'X-Tenant-ID',
       'X-Request-ID',
     ],
   });
@@ -48,23 +47,19 @@ async function bootstrap(): Promise<void> {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('LeadWatch API')
       .setDescription(
-        'Plataforma SaaS de Inteligência de Vendas via monitoramento passivo de WhatsApp',
+        'Inteligência de vendas via monitoramento passivo de WhatsApp (instância única)',
       )
       .setVersion('1.0')
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         'access-token',
       )
-      .addApiKey(
-        { type: 'apiKey', in: 'header', name: 'X-Tenant-ID' },
-        'tenant-id',
-      )
       .addTag('auth', 'Autenticação e tokens')
       .addTag('leads', 'Gestão de leads')
       .addTag('dashboard', 'Estatísticas e métricas')
       .addTag('webhooks', 'Integração baileys API')
-      .addTag('settings', 'Configurações do tenant')
-      .addTag('connections', 'Conexões WhatsApp por tenant')
+      .addTag('settings', 'Configurações da aplicação')
+      .addTag('whatsapp', 'Sessão WhatsApp (Baileys) global')
       .addTag('debug', 'Debug e inspeção (apenas ADMIN)')
       .build();
 

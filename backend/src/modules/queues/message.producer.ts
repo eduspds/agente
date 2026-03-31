@@ -8,7 +8,8 @@ import {
   QUEUE_MESSAGE_PROCESSING,
 } from './queues.constants';
 import { PrismaService } from '../../prisma/prisma.service';
-import { parseAiSettingsJson } from '../tenants/tenant-ai.runtime';
+import { parseAiSettingsJson } from '../settings/ai-settings.runtime';
+import { APP_SETTINGS_ID } from '../../common/constants/app-settings';
 
 @Injectable()
 export class MessageProducer {
@@ -26,15 +27,14 @@ export class MessageProducer {
   }
 
   async scheduleProcessing(
-    tenantId: string,
     chatId: string,
     leadId: string,
   ): Promise<void> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const settings = await this.prisma.appSettings.findUnique({
+      where: { id: APP_SETTINGS_ID },
       select: { aiSettings: true },
     });
-    const rt = parseAiSettingsJson(tenant?.aiSettings, {
+    const rt = parseAiSettingsJson(settings?.aiSettings, {
       provider: this.configService.get<string>('ai.provider') ?? 'openai',
       apiKey: this.configService.get<string>('ai.apiKey') ?? '',
       model: this.configService.get<string>('ai.model') ?? 'gpt-4o-mini',
@@ -49,10 +49,8 @@ export class MessageProducer {
     const debounceMs = Math.round(
       Math.min(60, Math.max(1, rt.debounceMinutes)) * 60_000,
     );
-    // jobId determinístico por chatId garante que só existe 1 job pendente por conversa
-    const jobId = `${tenantId}:${chatId}`;
+    const jobId = chatId;
 
-    // Remove job pendente anterior (debounce — seção 9.1)
     const existingJob = await this.messageQueue.getJob(jobId);
     if (existingJob) {
       const state = await existingJob.getState();
@@ -65,7 +63,6 @@ export class MessageProducer {
     }
 
     const jobData: ProcessMessagesJobData = {
-      tenantId,
       chatId,
       leadId,
       triggeredAt: new Date().toISOString(),
@@ -79,8 +76,8 @@ export class MessageProducer {
         type: 'exponential',
         delay: this.configService.get<number>('queue.backoffMs') ?? 5_000,
       },
-      removeOnComplete: 100,   // mantém últimos 100 jobs completados para debug
-      removeOnFail: false,     // mantém falhos para análise na DLQ
+      removeOnComplete: 100,
+      removeOnFail: false,
     });
 
     this.logger.log(

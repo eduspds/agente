@@ -7,8 +7,6 @@ import {
   extractMessageBody,
 } from './dto/evolution-webhook.dto';
 
-// ─── Mock do WebhooksService ──────────────────────────────────────────────────
-
 const mockWebhooksService = {
   processUpsert: jest.fn(),
 };
@@ -22,8 +20,6 @@ const mockConfigService = {
     return map[key];
   }),
 };
-
-// ─── Testes de resolução de phone (Regra Crítica 7.1) ────────────────────────
 
 describe('resolvePhoneFromJid', () => {
   it('deve extrair phone de remoteJid no formato PN', () => {
@@ -40,7 +36,7 @@ describe('resolvePhoneFromJid', () => {
       '5511987654321@s.whatsapp.net',
     );
     expect(phone).toBe('5511987654321');
-    expect(chatId).toBe('221800818593797@lid'); // chatId mantém o LID original
+    expect(chatId).toBe('221800818593797@lid');
   });
 
   it('deve retornar phone=null quando remoteJid é LID sem alternativo', () => {
@@ -54,8 +50,6 @@ describe('resolvePhoneFromJid', () => {
     expect(phone).toBe('5511999999999');
   });
 });
-
-// ─── Testes de extração de body da mensagem ───────────────────────────────────
 
 describe('extractMessageBody', () => {
   it('deve extrair texto de conversation', () => {
@@ -81,8 +75,6 @@ describe('extractMessageBody', () => {
   });
 });
 
-// ─── Testes do WebhooksController ─────────────────────────────────────────────
-
 describe('WebhooksController', () => {
   let controller: WebhooksController;
 
@@ -99,10 +91,9 @@ describe('WebhooksController', () => {
     jest.clearAllMocks();
   });
 
-  it('deve retornar { ok: true } mesmo sem tenantId', async () => {
+  it('deve retornar { ok: true } com payload base inválido', async () => {
     const result = await controller.handleWebhook(
       {},
-      undefined,
       undefined,
       { rawBody: undefined } as never,
     );
@@ -114,7 +105,6 @@ describe('WebhooksController', () => {
     const result = await controller.handleWebhook(
       { event: 'connection.update', data: {} },
       'valid-sig',
-      'tenant-1',
       { rawBody: Buffer.from('{}') } as never,
     );
     expect(result).toEqual({ ok: true });
@@ -147,13 +137,11 @@ describe('WebhooksController', () => {
     const result = await controller.handleWebhook(
       payload,
       'valid-sig',
-      'tenant-1',
       { rawBody: Buffer.from(JSON.stringify(payload)) } as never,
     );
 
     expect(result).toEqual({ ok: true });
     expect(mockWebhooksService.processUpsert).toHaveBeenCalledWith(
-      'tenant-1',
       expect.objectContaining({ event: 'messages.upsert' }),
     );
   });
@@ -176,7 +164,6 @@ describe('WebhooksController', () => {
     const result = await controller.handleWebhook(
       payload,
       'any',
-      'tenant-1',
       { rawBody: Buffer.from('{}') } as never,
     );
 

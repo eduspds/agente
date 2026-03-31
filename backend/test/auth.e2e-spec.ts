@@ -73,12 +73,11 @@ describe('Auth (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email: 'admin@leadwatch.com', password: 'Admin@123' });
 
-      const { accessToken, user } = loginResponse.body;
+      const { accessToken } = loginResponse.body;
 
       await request(app.getHttpServer())
         .get('/api/v1/leads')
         .set('Authorization', `Bearer ${accessToken}`)
-        .set('X-Tenant-ID', user.tenantId)
         .expect(200);
     });
   });

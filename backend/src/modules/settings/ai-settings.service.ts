@@ -17,11 +17,11 @@ import {
   maskApiKey,
   parseAiSettingsJson,
   shouldPreserveApiKey,
-} from './tenant-ai.runtime';
+} from './ai-settings.runtime';
+import { APP_SETTINGS_ID } from '../../common/constants/app-settings';
 
 export interface AiConfigView {
   id: string;
-  tenantId: string;
   provider: {
     provider: string;
     apiKey: string;
@@ -81,15 +81,15 @@ export class AiSettingsService {
     };
   }
 
-  async getAiConfig(tenantId: string): Promise<AiConfigView> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
+  async getAiConfig(): Promise<AiConfigView> {
+    const row = await this.prisma.appSettings.findUnique({
+      where: { id: APP_SETTINGS_ID },
     });
-    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    if (!row) throw new NotFoundException('Configurações não encontradas');
 
     const env = this.envFallbacks();
-    const rt = parseAiSettingsJson(tenant.aiSettings, env);
-    const stored = tenant.aiSettings as Record<string, unknown> | null;
+    const rt = parseAiSettingsJson(row.aiSettings, env);
+    const stored = row.aiSettings as Record<string, unknown> | null;
     const storedKey =
       stored && typeof stored.apiKey === 'string' && stored.apiKey.length > 0
         ? stored.apiKey
@@ -97,8 +97,7 @@ export class AiSettingsService {
     const hasSecret = Boolean(storedKey || env.apiKey);
 
     return {
-      id: tenant.id,
-      tenantId: tenant.id,
+      id: row.id,
       provider: {
         provider: rt.provider,
         apiKey: maskApiKey(hasSecret),
@@ -113,8 +112,8 @@ export class AiSettingsService {
         cacheTtlSeconds: rt.cacheTtlSeconds,
       },
       prompt: {
-        systemPrompt: tenant.aiPrompt,
-        promptVersion: tenant.promptVersion,
+        systemPrompt: row.aiPrompt,
+        promptVersion: row.promptVersion,
         truncateMaxMessages: rt.truncateMaxMessages,
         truncateMaxChars: rt.truncateMaxChars,
       },
@@ -123,14 +122,14 @@ export class AiSettingsService {
         disqualificationKeywords: rt.disqualificationKeywords,
         debounceMinutes: rt.debounceMinutes,
         confidenceThreshold: rt.confidenceThreshold,
-        requiredFields: tenant.requiredFields,
+        requiredFields: row.requiredFields,
       },
-      isActive: tenant.isActive,
-      updatedAt: tenant.updatedAt.toISOString(),
+      isActive: row.isActive,
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 
-  async updateAiConfig(tenantId: string, body: unknown): Promise<AiConfigView> {
+  async updateAiConfig(body: unknown): Promise<AiConfigView> {
     const parsed = PutAiConfigBodySchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
@@ -139,12 +138,12 @@ export class AiSettingsService {
     }
     const dto: PutAiConfigBody = parsed.data;
 
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const row = await this.prisma.appSettings.findUnique({
+      where: { id: APP_SETTINGS_ID },
     });
-    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    if (!row) throw new NotFoundException('Configurações não encontradas');
 
-    const prev = tenant.aiSettings as Record<string, unknown> | null;
+    const prev = row.aiSettings as Record<string, unknown> | null;
     const prevKey =
       prev && typeof prev.apiKey === 'string' && prev.apiKey.length > 0
         ? prev.apiKey
@@ -187,7 +186,7 @@ export class AiSettingsService {
       aiSettings.apiKey = nextKey;
     }
 
-    const promptChanged = dto.prompt.systemPrompt !== tenant.aiPrompt;
+    const promptChanged = dto.prompt.systemPrompt !== row.aiPrompt;
     const updateData: {
       aiPrompt: string;
       requiredFields: string[];
@@ -200,15 +199,15 @@ export class AiSettingsService {
     };
 
     if (promptChanged) {
-      updateData.promptVersion = tenant.promptVersion + 1;
+      updateData.promptVersion = row.promptVersion + 1;
     }
 
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
+    await this.prisma.appSettings.update({
+      where: { id: APP_SETTINGS_ID },
       data: updateData,
     });
 
-    return this.getAiConfig(tenantId);
+    return this.getAiConfig();
   }
 
   async testConnection(body: unknown): Promise<TestConnectionResult> {

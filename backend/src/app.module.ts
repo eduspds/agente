@@ -8,13 +8,12 @@ import { PrismaModule } from './prisma/prisma.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
 // Módulos de domínio — importados progressivamente a cada fase
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { TenantsModule } from './modules/tenants/tenants.module';
+import { SettingsModule } from './modules/settings/settings.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
@@ -23,7 +22,7 @@ import { QueuesModule } from './modules/queues/queues.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuditModule } from './modules/audit/audit.module';
-import { ConnectionsModule } from './modules/connections/connections.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -66,7 +65,7 @@ import { ConnectionsModule } from './modules/connections/connections.module';
     // ─── Módulos de domínio ───────────────────────────────────────────────────
     AuthModule,
     UsersModule,
-    TenantsModule,
+    SettingsModule,
     LeadsModule,
     MessagesModule,
     WebhooksModule,
@@ -75,7 +74,7 @@ import { ConnectionsModule } from './modules/connections/connections.module';
     PipelineModule,
     DashboardModule,
     AuditModule,
-    ConnectionsModule,
+    WhatsappModule,
   ],
   providers: [
     // ─── Filtro global de exceções ────────────────────────────────────────────
@@ -90,14 +89,10 @@ import { ConnectionsModule } from './modules/connections/connections.module';
       useClass: LoggingInterceptor,
     },
 
-    // ─── Guards globais — ordem importa: JWT → Tenant → Roles ────────────────
+    // ─── Guards globais — ordem importa: JWT → Roles ─────────────────────────
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: TenantGuard,
     },
     {
       provide: APP_GUARD,

@@ -9,7 +9,8 @@ import {
 } from './funnel.rules';
 import { Lead, LeadStatus, Source } from '@prisma/client';
 import { DashboardGateway } from '../dashboard/dashboard.gateway';
-import { parseAiSettingsJson } from '../tenants/tenant-ai.runtime';
+import { parseAiSettingsJson } from '../settings/ai-settings.runtime';
+import { APP_SETTINGS_ID } from '../../common/constants/app-settings';
 
 @Injectable()
 export class PipelineService {
@@ -19,39 +20,41 @@ export class PipelineService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
-    // @Optional() evita dependência circular no bootstrap antes do Gateway inicializar
     @Optional() private readonly dashboardGateway?: DashboardGateway,
   ) {}
 
   async applyAiResult(
-    tenantId: string,
     leadId: string,
     aiResult: AiAnalyzeResult,
     messageIds: string[],
   ): Promise<void> {
-    const lead = await this.prisma.lead.findFirst({
-      where: { id: leadId, tenantId },
-      include: {
-        tenant: {
-          select: {
-            requiredFields: true,
-            aiPrompt: true,
-            promptVersion: true,
-            aiSettings: true,
-          },
+    const [lead, settingsRow] = await Promise.all([
+      this.prisma.lead.findFirst({
+        where: { id: leadId },
+      }),
+      this.prisma.appSettings.findUnique({
+        where: { id: APP_SETTINGS_ID },
+        select: {
+          requiredFields: true,
+          aiPrompt: true,
+          promptVersion: true,
+          aiSettings: true,
         },
-      },
-    });
+      }),
+    ]);
 
     if (!lead) {
       this.logger.error(`Lead não encontrado: ${leadId}`);
       return;
     }
 
-    // ─── Salva AiAnalysis ─────────────────────────────────────────────────
+    if (!settingsRow) {
+      this.logger.error(`AppSettings não encontrado: ${APP_SETTINGS_ID}`);
+      return;
+    }
+
     await this.prisma.aiAnalysis.create({
       data: {
-        tenantId,
         leadId,
         messageIds,
         promptSent: aiResult.promptSent,
@@ -68,14 +71,13 @@ export class PipelineService {
       },
     });
 
-    // ─── Avalia transição de funil ────────────────────────────────────────
     const extractedFieldsRecord: Record<string, string | null> = {
       name: aiResult.extractedFields.name,
       plate: aiResult.extractedFields.plate,
       email: aiResult.extractedFields.email,
     };
 
-    const rt = parseAiSettingsJson(lead.tenant.aiSettings, {
+    const rt = parseAiSettingsJson(settingsRow.aiSettings, {
       provider: this.configService.get<string>('ai.provider') ?? 'openai',
       apiKey: this.configService.get<string>('ai.apiKey') ?? '',
       model: this.configService.get<string>('ai.model') ?? 'gpt-4o-mini',
@@ -93,21 +95,19 @@ export class PipelineService {
       intent: aiResult.intent,
       disqualifyReason: aiResult.disqualifyReason,
       confidenceScore: aiResult.confidenceScore,
-      requiredFields: lead.tenant.requiredFields,
+      requiredFields: settingsRow.requiredFields,
       extractedFields: extractedFieldsRecord,
       confidenceThreshold: rt.confidenceThreshold,
     });
 
-    // ─── Calcula priority score ───────────────────────────────────────────
     const priorityScore = calculatePriorityScore({
       lastMessageAt: lead.lastMessageAt,
       status: transition.newStatus,
       extractedFields: extractedFieldsRecord,
-      requiredFields: lead.tenant.requiredFields,
+      requiredFields: settingsRow.requiredFields,
       sentiment: aiResult.sentiment,
     });
 
-    // ─── Prepara campos a atualizar (respeitando humanOverride) ──────────
     const humanOverrides = new Set(lead.humanOverrideFields);
 
     const updateData: Partial<Lead> & Record<string, unknown> = {
@@ -122,7 +122,6 @@ export class PipelineService {
       disqualifyReason: aiResult.disqualifyReason,
     };
 
-    // Campos extraídos: nunca sobrescrever se tiver humanOverride
     const fieldsToCheck = ['name', 'plate', 'email'] as const;
     for (const field of fieldsToCheck) {
       if (!humanOverrides.has(field) && aiResult.extractedFields[field] !== null) {
@@ -135,11 +134,9 @@ export class PipelineService {
       data: updateData,
     });
 
-    // ─── Registra FunnelEvent se houve transição de status ────────────────
     if (transition.newStatus !== lead.status) {
       await this.prisma.funnelEvent.create({
         data: {
-          tenantId,
           leadId,
           fromStatus: lead.status,
           toStatus: transition.newStatus,
@@ -149,9 +146,7 @@ export class PipelineService {
         },
       });
 
-      // AuditLog para a transição
       await this.auditService.log({
-        tenantId,
         leadId,
         field: 'status',
         oldValue: lead.status,
@@ -165,7 +160,6 @@ export class PipelineService {
       );
     }
 
-    // AuditLog para campos extraídos que mudaram
     const auditEntries = [];
     for (const field of fieldsToCheck) {
       if (!humanOverrides.has(field) && aiResult.extractedFields[field] !== null) {
@@ -173,7 +167,6 @@ export class PipelineService {
         const newValue = aiResult.extractedFields[field] ?? undefined;
         if (oldValue !== newValue) {
           auditEntries.push({
-            tenantId,
             leadId,
             field,
             oldValue: oldValue ? String(oldValue) : undefined,
@@ -189,10 +182,9 @@ export class PipelineService {
       await this.auditService.logMany(auditEntries);
     }
 
-    // Emite evento Socket.io para clientes conectados no tenant
     if (this.dashboardGateway) {
       const { chatId: _chatId, ...safeLeadData } = updatedLead;
-      this.dashboardGateway.emitLeadUpdated(tenantId, safeLeadData as unknown as Record<string, unknown>);
+      this.dashboardGateway.emitLeadUpdated(safeLeadData as unknown as Record<string, unknown>);
     }
 
     this.logger.log(
@@ -201,14 +193,13 @@ export class PipelineService {
   }
 
   async manualStatusChange(
-    tenantId: string,
     leadId: string,
     newStatus: LeadStatus,
     userId: string,
     reason?: string,
   ): Promise<Lead> {
     const lead = await this.prisma.lead.findFirst({
-      where: { id: leadId, tenantId },
+      where: { id: leadId },
     });
 
     if (!lead) {
@@ -222,7 +213,6 @@ export class PipelineService {
 
     await this.prisma.funnelEvent.create({
       data: {
-        tenantId,
         leadId,
         fromStatus: lead.status,
         toStatus: newStatus,
@@ -233,7 +223,6 @@ export class PipelineService {
     });
 
     await this.auditService.log({
-      tenantId,
       leadId,
       userId,
       field: 'status',

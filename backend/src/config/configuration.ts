@@ -44,6 +44,12 @@ export interface QueueConfig {
 
 export interface BaileysConfig {
   webhookSecret: string;
+  /** URL POST opcional do sidecar Baileys para envio ({ instance, to, text }). */
+  messageProxyUrl?: string;
+  /** Bearer opcional para o proxy de envio. */
+  messageProxySecret?: string;
+  /** Nome de instância padrão ao criar a linha única no banco. */
+  defaultInstanceName: string;
 }
 
 // ─── Registros de configuração por namespace ─────────────────────────────────
@@ -113,6 +119,10 @@ export const baileysConfig = registerAs(
   'baileys',
   (): BaileysConfig => ({
     webhookSecret: requireEnv('BAILEYS_WEBHOOK_SECRET'),
+    messageProxyUrl: process.env.BAILEYS_MESSAGE_URL?.trim() || undefined,
+    messageProxySecret: process.env.BAILEYS_MESSAGE_SECRET?.trim() || undefined,
+    defaultInstanceName:
+      process.env.BAILEYS_DEFAULT_INSTANCE?.trim() || 'leadwatch',
   }),
 );
 

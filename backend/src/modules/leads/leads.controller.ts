@@ -14,7 +14,6 @@ import {
   ApiOperation,
   ApiQuery,
   ApiResponse,
-  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -25,11 +24,10 @@ import {
   UpdateLeadSchema,
 } from './dto/lead.dto';
 import { GetMessagesDtoSchema } from './dto/get-messages.dto';
-import { JwtPayload } from '../../common/guards/tenant.guard';
+import { JwtPayload } from '../../common/auth/jwt-payload';
 
 @ApiTags('leads')
 @ApiBearerAuth('access-token')
-@ApiSecurity('tenant-id')
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}
@@ -41,22 +39,27 @@ export class LeadsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'needsHumanReview', required: false, type: Boolean })
   @ApiQuery({ name: 'search', required: false })
-  async findAll(@Req() req: Request, @Query() query: Record<string, string>) {
+  @ApiQuery({
+    name: 'orderBy',
+    required: false,
+    enum: ['priority', 'lastMessageAt'],
+    description: 'Ordenação (padrão: priority)',
+  })
+  async findAll(@Query() query: Record<string, string>) {
     const result = LeadFiltersSchema.safeParse(query);
     if (!result.success) {
       throw new BadRequestException(
         result.error.errors.map((e) => e.message).join(', '),
       );
     }
-    return this.leadsService.findAll(req.tenantId as string, result.data);
+    return this.leadsService.findAll(result.data);
   }
 
   @Get(':id/messages')
-  @ApiOperation({ summary: 'Lista mensagens paginadas de um lead (cursor por timestamp)' })
-  @ApiQuery({ name: 'cursor', required: false, description: 'ID da mensagem mais antiga já carregada' })
+  @ApiOperation({ summary: 'Lista mensagens paginadas de um lead (cursor-based + última análise IA)' })
+  @ApiQuery({ name: 'cursor', required: false, description: 'ID da mensagem âncora (bloco anterior no tempo)' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getMessages(
-    @Req() req: Request,
     @Param('id') id: string,
     @Query() rawQuery: Record<string, string | string[] | undefined>,
   ) {
@@ -71,17 +74,13 @@ export class LeadsController {
         result.error.errors.map((e) => e.message).join(', '),
       );
     }
-    return this.leadsService.getMessages(
-      id,
-      req.tenantId as string,
-      result.data,
-    );
+    return this.leadsService.getMessages(id, result.data);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obter lead por ID com mensagens recentes' })
-  async findOne(@Req() req: Request, @Param('id') id: string) {
-    return this.leadsService.findOne(req.tenantId as string, id);
+  async findOne(@Param('id') id: string) {
+    return this.leadsService.findOne(id);
   }
 
   @Patch(':id')
@@ -100,12 +99,7 @@ export class LeadsController {
       );
     }
     const user = req.user as JwtPayload;
-    return this.leadsService.update(
-      req.tenantId as string,
-      id,
-      result.data,
-      user.sub,
-    );
+    return this.leadsService.update(id, result.data, user.sub);
   }
 
   @Post(':id/reprocess')
@@ -113,15 +107,15 @@ export class LeadsController {
     summary: 'Reprocessar lead com IA — reseta flags e recoloca na fila',
   })
   @ApiResponse({ status: 201, schema: { properties: { queued: { type: 'boolean' } } } })
-  async reprocess(@Req() req: Request, @Param('id') id: string) {
-    return this.leadsService.reprocess(req.tenantId as string, id);
+  async reprocess(@Param('id') id: string) {
+    return this.leadsService.reprocess(id);
   }
 
   @Get(':id/history')
   @ApiOperation({
     summary: 'Histórico completo do lead: AuditLogs + FunnelEvents + AiAnalyses',
   })
-  async getHistory(@Req() req: Request, @Param('id') id: string) {
-    return this.leadsService.getHistory(req.tenantId as string, id);
+  async getHistory(@Param('id') id: string) {
+    return this.leadsService.getHistory(id);
   }
 }

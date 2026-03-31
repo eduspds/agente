@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { PipelineService } from './pipeline.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -9,12 +10,13 @@ import {
   calculatePriorityScore,
 } from './funnel.rules';
 
-// ─── Mocks ────────────────────────────────────────────────────────────────────
-
 const mockPrisma = {
   lead: {
     findFirst: jest.fn(),
     update: jest.fn(),
+  },
+  appSettings: {
+    findUnique: jest.fn(),
   },
   aiAnalysis: {
     create: jest.fn(),
@@ -27,6 +29,10 @@ const mockPrisma = {
 const mockAuditService = {
   log: jest.fn(),
   logMany: jest.fn(),
+};
+
+const mockConfigService = {
+  get: jest.fn(() => undefined),
 };
 
 const mockAiResult: AiAnalyzeResult = {
@@ -51,7 +57,12 @@ const mockAiResult: AiAnalyzeResult = {
   needsHumanReview: false,
 };
 
-// ─── Testes unitários das regras do funil ─────────────────────────────────────
+const mockAppSettingsRow = {
+  requiredFields: ['name', 'plate', 'email'],
+  aiPrompt: 'teste',
+  promptVersion: 1,
+  aiSettings: {},
+};
 
 describe('FunnelRules', () => {
   describe('evaluateFunnelTransition', () => {
@@ -148,20 +159,19 @@ describe('FunnelRules', () => {
   describe('calculatePriorityScore', () => {
     it('deve calcular score máximo para lead qualificado recente positivo', () => {
       const score = calculatePriorityScore({
-        lastMessageAt: new Date(), // agora = recente
+        lastMessageAt: new Date(),
         status: LeadStatus.QUALIFICADO,
         extractedFields: { name: 'João', plate: 'ABC1234', email: 'j@j.com' },
         requiredFields: ['name', 'plate', 'email'],
         sentiment: 'POSITIVO',
       });
 
-      // 40 (recente) + 30 (QUALIFICADO) + 20 (todos campos) + 10 (POSITIVO) = 100/100 = 1.0
       expect(score).toBe(1.0);
     });
 
     it('deve calcular score mínimo para lead desqualificado antigo', () => {
       const score = calculatePriorityScore({
-        lastMessageAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 dias atrás
+        lastMessageAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
         status: LeadStatus.DESQUALIFICADO,
         extractedFields: {},
         requiredFields: ['name', 'plate'],
@@ -173,8 +183,6 @@ describe('FunnelRules', () => {
   });
 });
 
-// ─── Testes unitários do PipelineService ─────────────────────────────────────
-
 describe('PipelineService', () => {
   let service: PipelineService;
 
@@ -184,6 +192,7 @@ describe('PipelineService', () => {
         PipelineService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuditService, useValue: mockAuditService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
@@ -194,21 +203,16 @@ describe('PipelineService', () => {
   it('deve processar resultado da IA e qualificar lead', async () => {
     const mockLead = {
       id: 'lead-1',
-      tenantId: 'tenant-1',
       status: LeadStatus.EM_QUALIFICACAO,
       name: null,
       plate: null,
       email: null,
       humanOverrideFields: [],
       lastMessageAt: new Date(),
-      tenant: {
-        requiredFields: ['name', 'plate', 'email'],
-        aiPrompt: 'teste',
-        promptVersion: 1,
-      },
     };
 
     mockPrisma.lead.findFirst.mockResolvedValue(mockLead);
+    mockPrisma.appSettings.findUnique.mockResolvedValue(mockAppSettingsRow);
     mockPrisma.aiAnalysis.create.mockResolvedValue({ id: 'analysis-1' });
     mockPrisma.lead.update.mockResolvedValue({
       ...mockLead,
@@ -218,12 +222,7 @@ describe('PipelineService', () => {
     mockAuditService.log.mockResolvedValue(undefined);
     mockAuditService.logMany.mockResolvedValue(undefined);
 
-    await service.applyAiResult(
-      'tenant-1',
-      'lead-1',
-      mockAiResult,
-      ['msg-1'],
-    );
+    await service.applyAiResult('lead-1', mockAiResult, ['msg-1']);
 
     expect(mockPrisma.funnelEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -239,36 +238,28 @@ describe('PipelineService', () => {
   it('não deve sobrescrever campos com humanOverride', async () => {
     const mockLead = {
       id: 'lead-1',
-      tenantId: 'tenant-1',
       status: LeadStatus.EM_QUALIFICACAO,
       name: 'Nome Editado Manualmente',
       plate: null,
       email: null,
-      humanOverrideFields: ['name'], // name protegido
+      humanOverrideFields: ['name'],
       lastMessageAt: new Date(),
-      tenant: {
-        requiredFields: ['name'],
-        aiPrompt: 'teste',
-        promptVersion: 1,
-      },
     };
 
     mockPrisma.lead.findFirst.mockResolvedValue(mockLead);
+    mockPrisma.appSettings.findUnique.mockResolvedValue({
+      ...mockAppSettingsRow,
+      requiredFields: ['name'],
+    });
     mockPrisma.aiAnalysis.create.mockResolvedValue({ id: 'analysis-1' });
     mockPrisma.lead.update.mockResolvedValue(mockLead);
     mockPrisma.funnelEvent.create.mockResolvedValue({ id: 'event-1' });
     mockAuditService.log.mockResolvedValue(undefined);
     mockAuditService.logMany.mockResolvedValue(undefined);
 
-    await service.applyAiResult(
-      'tenant-1',
-      'lead-1',
-      mockAiResult,
-      ['msg-1'],
-    );
+    await service.applyAiResult('lead-1', mockAiResult, ['msg-1']);
 
     const updateCall = mockPrisma.lead.update.mock.calls[0][0];
-    // name não deve estar no updateData (está protegido por humanOverride)
     expect(updateCall.data.name).toBeUndefined();
   });
 });

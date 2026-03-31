@@ -8,7 +8,7 @@ import {
 import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { JwtPayload } from '../guards/tenant.guard';
+import { JwtPayload } from '../auth/jwt-payload';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -33,7 +33,6 @@ export class LoggingInterceptor implements NestInterceptor {
             path: request.url,
             statusCode: response.statusCode,
             duration: `${duration}ms`,
-            tenantId: user?.tenantId ?? request.tenantId ?? 'anonymous',
             userId: user?.sub ?? 'anonymous',
           };
 
@@ -50,7 +49,7 @@ export class LoggingInterceptor implements NestInterceptor {
             path: request.url,
             statusCode: response.statusCode || 500,
             duration: `${duration}ms`,
-            tenantId: user?.tenantId ?? 'anonymous',
+            userId: user?.sub ?? 'anonymous',
             error: error.message,
           };
 

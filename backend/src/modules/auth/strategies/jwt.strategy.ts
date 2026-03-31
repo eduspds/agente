@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { JwtPayload } from '../.././../common/guards/tenant.guard';
+import { JwtPayload } from '../../../common/auth/jwt-payload';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -15,7 +15,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   validate(payload: JwtPayload): JwtPayload {
-    if (!payload.sub || !payload.tenantId) {
+    if (!payload.sub) {
       throw new UnauthorizedException('Token inválido: payload incompleto');
     }
     return payload;

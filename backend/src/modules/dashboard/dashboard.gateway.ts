@@ -9,11 +9,11 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
-import { JwtPayload } from '../../common/guards/tenant.guard';
+import { JwtPayload } from '../../common/auth/jwt-payload';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // CORS configurado dinamicamente via env em produção
+    origin: '*',
     credentials: true,
   },
   namespace: '/',
@@ -31,10 +31,9 @@ export class DashboardGateway
     private readonly configService: ConfigService,
   ) {}
 
-  afterInit(server: Server): void {
+  afterInit(server: Server) {
     this.logger.log('WebSocket Gateway inicializado');
 
-    // Middleware de autenticação JWT no handshake
     server.use((socket: Socket, next) => {
       const token =
         (socket.handshake.auth.token as string | undefined) ??
@@ -57,37 +56,34 @@ export class DashboardGateway
     });
   }
 
-  handleConnection(socket: Socket): void {
+  handleConnection(socket: Socket) {
     const user = (socket as Socket & { user?: JwtPayload }).user;
 
-    if (!user?.tenantId) {
+    if (!user?.sub) {
       socket.disconnect();
       return;
     }
 
-    // Room por tenantId — cada tenant isolado
-    void socket.join(`tenant:${user.tenantId}`);
-    this.logger.log(
-      `Cliente conectado: ${socket.id} tenantId=${user.tenantId}`,
-    );
+    void socket.join('app');
+    this.logger.log(`Cliente conectado: ${socket.id} userId=${user.sub}`);
   }
 
-  handleDisconnect(socket: Socket): void {
+  handleDisconnect(socket: Socket) {
     const user = (socket as Socket & { user?: JwtPayload }).user;
     this.logger.log(
-      `Cliente desconectado: ${socket.id} tenantId=${user?.tenantId ?? 'unknown'}`,
+      `Cliente desconectado: ${socket.id} userId=${user?.sub ?? 'unknown'}`,
     );
   }
 
-  emitLeadUpdated(tenantId: string, lead: Record<string, unknown>): void {
-    this.server.to(`tenant:${tenantId}`).emit('lead:updated', lead);
+  emitLeadUpdated(lead: Record<string, unknown>): void {
+    this.server.to('app').emit('lead:updated', lead);
   }
 
-  emitLeadCreated(tenantId: string, lead: Record<string, unknown>): void {
-    this.server.to(`tenant:${tenantId}`).emit('lead:created', lead);
+  emitLeadCreated(lead: Record<string, unknown>): void {
+    this.server.to('app').emit('lead:created', lead);
   }
 
-  emitStatsUpdated(tenantId: string, stats: Record<string, unknown>): void {
-    this.server.to(`tenant:${tenantId}`).emit('stats:updated', stats);
+  emitStatsUpdated(stats: Record<string, unknown>): void {
+    this.server.to('app').emit('stats:updated', stats);
   }
 }

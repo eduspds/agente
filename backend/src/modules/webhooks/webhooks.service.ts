@@ -30,12 +30,10 @@ export class WebhooksService {
   ) {}
 
   async processUpsert(
-    tenantId: string,
     payload: BaileysUpsertPayload,
   ): Promise<WebhookProcessResult> {
     const { key, message, messageTimestamp, pushName } = payload.data;
 
-    // ─── Resolução de phone (Regra Crítica 7.1) ────────────────────────────
     const { phone, chatId } = resolvePhoneFromJid(
       key.remoteJid,
       key.remoteJidAlt,
@@ -45,7 +43,6 @@ export class WebhooksService {
     const timestamp = new Date(Number(messageTimestamp) * 1000);
     const messageId = key.id;
 
-    // ─── Idempotência: verificar messageId antes de qualquer operação ──────
     const existingMsg = await this.prisma.message.findUnique({
       where: { messageId },
     });
@@ -60,18 +57,14 @@ export class WebhooksService {
       };
     }
 
-    // ─── Upsert do Lead ────────────────────────────────────────────────────
     const leadStatus: LeadStatus =
       phone === null
         ? LeadStatus.PENDENTE_IDENTIFICACAO
         : LeadStatus.NOVO;
 
     const lead = await this.prisma.lead.upsert({
-      where: {
-        tenantId_chatId: { tenantId, chatId },
-      },
+      where: { chatId },
       create: {
-        tenantId,
         chatId,
         phone: phone ?? undefined,
         name: pushName ?? undefined,
@@ -80,22 +73,13 @@ export class WebhooksService {
       },
       update: {
         lastMessageAt: timestamp,
-        // Atualiza phone se antes era null (LID resolvido)
         ...(phone !== null && { phone }),
-        // Atualiza nome apenas se ainda não foi sobrescrito por IA ou humano
         ...(pushName !== undefined && {
           name: pushName,
-        }),
-        // Promove status PENDENTE_IDENTIFICACAO → NOVO quando o phone é resolvido
-        ...(phone !== null && {
-          status: {
-            // Usa set condicional — não sobrescreve status avançados
-          },
         }),
       },
     });
 
-    // Corrige transição PENDENTE → NOVO se phone foi resolvido após LID
     if (
       phone !== null &&
       lead.status === LeadStatus.PENDENTE_IDENTIFICACAO
@@ -106,10 +90,8 @@ export class WebhooksService {
       });
     }
 
-    // ─── Persistência da mensagem ──────────────────────────────────────────
     const { message: savedMessage } =
       await this.messagesService.createIfNotExists({
-        tenantId,
         leadId: lead.id,
         messageId,
         chatId,
@@ -122,8 +104,7 @@ export class WebhooksService {
       `Mensagem capturada: leadId=${lead.id} chatId=${chatId} msgId=${messageId}`,
     );
 
-    // ─── Agenda processamento com debounce (seção 9.1) ─────────────────────
-    await this.messageProducer.scheduleProcessing(tenantId, chatId, lead.id);
+    await this.messageProducer.scheduleProcessing(chatId, lead.id);
 
     return {
       leadId: lead.id,

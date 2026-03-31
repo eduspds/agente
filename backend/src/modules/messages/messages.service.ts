@@ -6,7 +6,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Message } from '@prisma/client';
 
 export interface CreateMessageData {
-  tenantId: string;
   leadId: string;
   messageId: string;
   chatId: string;
@@ -24,7 +23,6 @@ export class MessagesService {
   async createIfNotExists(
     data: CreateMessageData,
   ): Promise<{ message: Message; isDuplicate: boolean }> {
-    // Idempotência: retorna silenciosamente se messageId já existe
     const existing = await this.prisma.message.findUnique({
       where: { messageId: data.messageId },
     });
@@ -40,13 +38,9 @@ export class MessagesService {
     return { message, isDuplicate: false };
   }
 
-  async findUnprocessedByChat(
-    tenantId: string,
-    chatId: string,
-  ): Promise<Message[]> {
+  async findUnprocessedByChat(chatId: string): Promise<Message[]> {
     return this.prisma.message.findMany({
       where: {
-        tenantId,
         chatId,
         processed: false,
       },
@@ -54,13 +48,9 @@ export class MessagesService {
     });
   }
 
-  async markAsProcessed(
-    tenantId: string,
-    messageIds: string[],
-  ): Promise<void> {
+  async markAsProcessed(messageIds: string[]): Promise<void> {
     await this.prisma.message.updateMany({
       where: {
-        tenantId,
         id: { in: messageIds },
       },
       data: { processed: true },

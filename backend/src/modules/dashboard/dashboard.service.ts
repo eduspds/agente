@@ -6,7 +6,7 @@ import { LeadStatus } from '@prisma/client';
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getStats(tenantId: string) {
+  async getStats() {
     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const [
@@ -15,30 +15,23 @@ export class DashboardService {
       needsReviewCount,
       topPriority,
     ] = await Promise.all([
-      // Contagem por status
       this.prisma.lead.groupBy({
         by: ['status'],
-        where: { tenantId },
         _count: { id: true },
       }),
 
-      // Leads com interação nas últimas 24h
       this.prisma.lead.count({
         where: {
-          tenantId,
           lastMessageAt: { gte: last24h },
         },
       }),
 
-      // Leads aguardando revisão humana
       this.prisma.lead.count({
-        where: { tenantId, needsHumanReview: true },
+        where: { needsHumanReview: true },
       }),
 
-      // Top 5 leads por prioridade
       this.prisma.lead.findMany({
         where: {
-          tenantId,
           status: {
             notIn: [LeadStatus.DESQUALIFICADO, LeadStatus.PENDENTE_IDENTIFICACAO],
           },
@@ -59,7 +52,6 @@ export class DashboardService {
       }),
     ]);
 
-    // Organiza contagens por status em objeto
     const statusCounts = Object.values(LeadStatus).reduce(
       (acc, status) => {
         acc[status] = 0;
@@ -78,8 +70,8 @@ export class DashboardService {
       totalActive,
       statusCounts,
       recentLeadsCount: recentCount,
-      needsHumanReviewCount: needsReviewCount,
-      topPriorityLeads: topPriority,
+      needsReviewCount,
+      topPriority,
     };
   }
 }

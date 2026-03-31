@@ -3,7 +3,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Source } from '@prisma/client';
 
 export interface CreateAuditLogData {
-  tenantId: string;
   leadId: string;
   userId?: string;
   field: string;
@@ -20,7 +19,6 @@ export class AuditService {
   async log(data: CreateAuditLogData): Promise<void> {
     await this.prisma.auditLog.create({
       data: {
-        tenantId: data.tenantId,
         leadId: data.leadId,
         userId: data.userId,
         field: data.field,
@@ -36,7 +34,6 @@ export class AuditService {
     if (entries.length === 0) return;
     await this.prisma.auditLog.createMany({
       data: entries.map((e) => ({
-        tenantId: e.tenantId,
         leadId: e.leadId,
         userId: e.userId,
         field: e.field,

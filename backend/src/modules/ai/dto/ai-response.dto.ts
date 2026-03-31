@@ -22,7 +22,6 @@ export type AiResponse = z.infer<typeof AiResponseSchema>;
 // ─── Contexto de entrada para o serviço de IA ─────────────────────────────────
 
 export interface AiAnalyzeInput {
-  tenantId: string;
   lead: {
     id: string;
     phone: string;
@@ -34,7 +33,7 @@ export interface AiAnalyzeInput {
     timestamp: Date;
     fromMe: boolean;
   }>;
-  tenant: {
+  appSettings: {
     aiPrompt: string;
     promptVersion: number;
     requiredFields: string[];

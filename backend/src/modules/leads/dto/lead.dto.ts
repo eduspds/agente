@@ -33,6 +33,8 @@ export const LeadFiltersSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   needsHumanReview: z.coerce.boolean().optional(),
   search: z.string().optional(),
+  /** `priority` (padrão): prioridade + última mensagem. `lastMessageAt`: mais recentes primeiro (mensageria). Com `cursor`, a ordenação alternativa pode não alinhar ao cursor por `createdAt`. */
+  orderBy: z.enum(['priority', 'lastMessageAt']).optional(),
 });
 
 export type UpdateLeadDto = z.infer<typeof UpdateLeadSchema>;

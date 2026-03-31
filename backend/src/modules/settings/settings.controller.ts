@@ -6,56 +6,46 @@ import {
   Patch,
   Post,
   Put,
-  Req,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { Request } from 'express';
-import { TenantsService } from './tenants.service';
+import { SettingsService } from './settings.service';
 import { AiSettingsService } from './ai-settings.service';
-import {
-  UpdateTenantSettingsDtoSwagger,
-  UpdateTenantSettingsSchema,
-} from './dto/tenant.dto';
+import { UpdateAppSettingsSchema } from './dto/app-settings.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('settings')
 @ApiBearerAuth('access-token')
-@ApiSecurity('tenant-id')
 @Controller('settings')
-export class TenantsController {
+export class SettingsController {
   constructor(
-    private readonly tenantsService: TenantsService,
+    private readonly settingsService: SettingsService,
     private readonly aiSettingsService: AiSettingsService,
   ) {}
 
   @Get()
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Obter configurações do tenant (apenas ADMIN)' })
-  async getSettings(@Req() req: Request) {
-    return this.tenantsService.getSettings(req.tenantId as string);
+  @ApiOperation({ summary: 'Obter configurações da aplicação (apenas ADMIN)' })
+  async getSettings() {
+    return this.settingsService.getSettings();
   }
 
   @Get('ai')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Obter configuração completa da IA (apenas ADMIN)' })
-  async getAiConfig(@Req() req: Request) {
-    return this.aiSettingsService.getAiConfig(req.tenantId as string);
+  async getAiConfig() {
+    return this.aiSettingsService.getAiConfig();
   }
 
   @Put('ai')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Salvar configuração da IA (apenas ADMIN)' })
-  async putAiConfig(@Req() req: Request, @Body() body: unknown) {
-    return this.aiSettingsService.updateAiConfig(
-      req.tenantId as string,
-      body,
-    );
+  async putAiConfig(@Body() body: unknown) {
+    return this.aiSettingsService.updateAiConfig(body);
   }
 
   @Post('ai/test')
@@ -67,18 +57,15 @@ export class TenantsController {
 
   @Patch()
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Atualizar configurações do tenant (apenas ADMIN)' })
+  @ApiOperation({ summary: 'Atualizar configurações da aplicação (apenas ADMIN)' })
   @ApiResponse({ status: 200 })
-  async updateSettings(@Req() req: Request, @Body() body: unknown) {
-    const result = UpdateTenantSettingsSchema.safeParse(body);
+  async updateSettings(@Body() body: unknown) {
+    const result = UpdateAppSettingsSchema.safeParse(body);
     if (!result.success) {
       throw new BadRequestException(
         result.error.errors.map((e) => e.message).join(', '),
       );
     }
-    return this.tenantsService.updateSettings(
-      req.tenantId as string,
-      result.data,
-    );
+    return this.settingsService.updateSettings(result.data);
   }
 }

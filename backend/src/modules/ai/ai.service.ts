@@ -12,8 +12,8 @@ import {
 import { AiPromptService } from './ai-prompt.service';
 import {
   parseAiSettingsJson,
-  type TenantAiRuntime,
-} from '../tenants/tenant-ai.runtime';
+  type AiSettingsRuntime,
+} from '../settings/ai-settings.runtime';
 
 @Injectable()
 export class AiService {
@@ -41,12 +41,12 @@ export class AiService {
   }
 
   async analyze(input: AiAnalyzeInput): Promise<AiAnalyzeResult> {
-    const { lead, messages, tenant } = input;
+    const { lead, messages, appSettings } = input;
     const messageIds = messages.map((m) => m.id);
-    const rt = parseAiSettingsJson(tenant.aiSettings, this.envFallbacks());
+    const rt = parseAiSettingsJson(appSettings.aiSettings, this.envFallbacks());
 
     const promptSent = this.promptService.buildPrompt({
-      promptTemplate: tenant.aiPrompt,
+      promptTemplate: appSettings.aiPrompt,
       phone: lead.phone,
       messages: messages.map((m) => ({
         body: m.body,
@@ -75,7 +75,7 @@ export class AiService {
         ...parsed,
         cacheHit: true,
         messageIds,
-        promptVersion: tenant.promptVersion,
+        promptVersion: appSettings.promptVersion,
       };
     }
 
@@ -146,7 +146,7 @@ export class AiService {
       tokensUsed,
       latencyMs,
       messageIds,
-      promptVersion: tenant.promptVersion,
+      promptVersion: appSettings.promptVersion,
       needsHumanReview,
     };
 
@@ -158,7 +158,7 @@ export class AiService {
   }
 
   private async completeJson(
-    rt: TenantAiRuntime,
+    rt: AiSettingsRuntime,
     userPrompt: string,
   ): Promise<{ text: string; tokensUsed: number | null }> {
     if (rt.provider === 'google') {
@@ -171,7 +171,7 @@ export class AiService {
   }
 
   private async completeOpenAiCompatible(
-    rt: TenantAiRuntime,
+    rt: AiSettingsRuntime,
     userPrompt: string,
   ): Promise<{ text: string; tokensUsed: number | null }> {
     if (!rt.apiKey) {
@@ -201,7 +201,7 @@ export class AiService {
   }
 
   private async completeGemini(
-    rt: TenantAiRuntime,
+    rt: AiSettingsRuntime,
     userPrompt: string,
   ): Promise<{ text: string; tokensUsed: number | null }> {
     if (!rt.apiKey) {
@@ -246,7 +246,7 @@ export class AiService {
   }
 
   private async completeAnthropic(
-    rt: TenantAiRuntime,
+    rt: AiSettingsRuntime,
     userPrompt: string,
   ): Promise<{ text: string; tokensUsed: number | null }> {
     if (!rt.apiKey) {

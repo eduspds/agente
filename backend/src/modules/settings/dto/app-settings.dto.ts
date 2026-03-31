@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { z } from 'zod';
 
-export const UpdateTenantSettingsSchema = z.object({
+export const UpdateAppSettingsSchema = z.object({
   aiPrompt: z.string().min(10, 'Prompt deve ter no mínimo 10 caracteres').optional(),
   requiredFields: z
     .array(z.string())
@@ -10,9 +10,9 @@ export const UpdateTenantSettingsSchema = z.object({
   name: z.string().min(2).max(100).optional(),
 });
 
-export type UpdateTenantSettingsDto = z.infer<typeof UpdateTenantSettingsSchema>;
+export type UpdateAppSettingsDto = z.infer<typeof UpdateAppSettingsSchema>;
 
-export class UpdateTenantSettingsDtoSwagger {
+export class UpdateAppSettingsDtoSwagger {
   @ApiPropertyOptional({ example: 'Você é um assistente de qualificação...' })
   aiPrompt?: string;
 

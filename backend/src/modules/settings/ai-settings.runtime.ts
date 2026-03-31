@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 
 export type AiProviderId = 'google' | 'openai' | 'anthropic' | 'custom';
 
-export interface TenantAiRuntime {
+export interface AiSettingsRuntime {
   provider: AiProviderId;
   apiKey?: string;
   baseUrl?: string;
@@ -42,7 +42,7 @@ function asProvider(v: unknown): AiProviderId {
 export function parseAiSettingsJson(
   raw: Prisma.JsonValue | null | undefined,
   env: AiEnvFallbacks,
-): TenantAiRuntime {
+): AiSettingsRuntime {
   const o =
     raw && typeof raw === 'object' && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)

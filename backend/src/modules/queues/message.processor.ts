@@ -10,6 +10,7 @@ import { MessagesService } from '../messages/messages.service';
 import { AiService } from '../ai/ai.service';
 import { PipelineService } from '../pipeline/pipeline.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { APP_SETTINGS_ID } from '../../common/constants/app-settings';
 
 @Processor(QUEUE_MESSAGE_PROCESSING)
 export class MessageProcessor {
@@ -26,18 +27,14 @@ export class MessageProcessor {
   async handleProcessMessages(
     job: Job<ProcessMessagesJobData>,
   ): Promise<void> {
-    const { tenantId, chatId, leadId } = job.data;
+    const { chatId, leadId } = job.data;
     const attempt = job.attemptsMade + 1;
 
     this.logger.log(
-      `[Job ${job.id}] Processando: tenantId=${tenantId} chatId=${chatId} tentativa=${attempt}`,
+      `[Job ${job.id}] Processando: chatId=${chatId} tentativa=${attempt}`,
     );
 
-    // 1. Busca mensagens não processadas em ordem cronológica
-    const messages = await this.messagesService.findUnprocessedByChat(
-      tenantId,
-      chatId,
-    );
+    const messages = await this.messagesService.findUnprocessedByChat(chatId);
 
     if (messages.length === 0) {
       this.logger.warn(
@@ -46,20 +43,20 @@ export class MessageProcessor {
       return;
     }
 
-    // 2. Busca dados do lead para contexto
-    const lead = await this.prisma.lead.findFirst({
-      where: { id: leadId, tenantId },
-      include: {
-        tenant: {
-          select: {
-            aiPrompt: true,
-            promptVersion: true,
-            requiredFields: true,
-            aiSettings: true,
-          },
+    const [lead, appSettings] = await Promise.all([
+      this.prisma.lead.findFirst({
+        where: { id: leadId },
+      }),
+      this.prisma.appSettings.findUnique({
+        where: { id: APP_SETTINGS_ID },
+        select: {
+          aiPrompt: true,
+          promptVersion: true,
+          requiredFields: true,
+          aiSettings: true,
         },
-      },
-    });
+      }),
+    ]);
 
     if (!lead) {
       this.logger.error(
@@ -68,13 +65,18 @@ export class MessageProcessor {
       return;
     }
 
+    if (!appSettings) {
+      this.logger.error(
+        `[Job ${job.id}] AppSettings não encontrado (id=${APP_SETTINGS_ID})`,
+      );
+      return;
+    }
+
     this.logger.log(
       `[Job ${job.id}] ${messages.length} mensagens para análise — lead=${leadId}`,
     );
 
-    // 3. Chama serviço de IA
     const aiResult = await this.aiService.analyze({
-      tenantId,
       lead: {
         id: lead.id,
         phone: lead.phone ?? '',
@@ -86,22 +88,17 @@ export class MessageProcessor {
         timestamp: m.timestamp,
         fromMe: m.fromMe,
       })),
-      tenant: {
-        aiPrompt: lead.tenant.aiPrompt,
-        promptVersion: lead.tenant.promptVersion,
-        requiredFields: lead.tenant.requiredFields,
-        aiSettings: lead.tenant.aiSettings,
+      appSettings: {
+        aiPrompt: appSettings.aiPrompt,
+        promptVersion: appSettings.promptVersion,
+        requiredFields: appSettings.requiredFields,
+        aiSettings: appSettings.aiSettings,
       },
     });
 
-    // 4. Aplica regras de pipeline e atualiza funil
-    await this.pipelineService.applyAiResult(tenantId, lead.id, aiResult, messages.map((m) => m.id));
+    await this.pipelineService.applyAiResult(lead.id, aiResult, messages.map((m) => m.id));
 
-    // 5. Marca mensagens como processadas
-    await this.messagesService.markAsProcessed(
-      tenantId,
-      messages.map((m) => m.id),
-    );
+    await this.messagesService.markAsProcessed(messages.map((m) => m.id));
 
     this.logger.log(
       `[Job ${job.id}] ✅ Processamento concluído: lead=${leadId} intent=${aiResult.intent} confidence=${aiResult.confidenceScore}`,
@@ -110,9 +107,9 @@ export class MessageProcessor {
 
   @OnQueueFailed()
   onJobFailed(job: Job<ProcessMessagesJobData>, error: Error): void {
-    const { tenantId, chatId } = job.data;
+    const { chatId } = job.data;
     this.logger.error(
-      `[Job ${job.id}] ❌ Falha (tentativa ${job.attemptsMade + 1}): tenantId=${tenantId} chatId=${chatId} — ${error.message}`,
+      `[Job ${job.id}] ❌ Falha (tentativa ${job.attemptsMade + 1}): chatId=${chatId} — ${error.message}`,
       error.stack,
     );
   }

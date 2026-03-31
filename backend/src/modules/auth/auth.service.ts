@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import { JwtPayload } from '../../common/guards/tenant.guard';
+import { JwtPayload } from '../../common/auth/jwt-payload';
 
 export interface TokenPair {
   accessToken: string;
@@ -21,7 +21,6 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
-  tenantId: string;
 }
 
 export interface AuthResponse {
@@ -30,8 +29,6 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-// Armazena refresh tokens invalidados (logout)
-// Trade-off: em produção usar Redis com TTL = refreshExpiresIn para não crescer indefinidamente
 const invalidatedRefreshTokens = new Set<string>();
 
 @Injectable()
@@ -47,11 +44,9 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthResponse> {
     const user = await this.prisma.user.findFirst({
       where: { email: dto.email, isActive: true },
-      include: { tenant: { select: { id: true, isActive: true } } },
     });
 
-    if (!user || !user.tenant.isActive) {
-      // Tempo constante para prevenir timing attack
+    if (!user) {
       await bcrypt.compare(dto.password, '$2b$12$invalidhash000000000000000000000000');
       throw new UnauthorizedException('Credenciais inválidas');
     }
@@ -65,12 +60,9 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      tenantId: user.tenantId,
     });
 
-    this.logger.log(
-      `Login bem-sucedido: userId=${user.id} tenantId=${user.tenantId}`,
-    );
+    this.logger.log(`Login bem-sucedido: userId=${user.id}`);
 
     return {
       ...tokens,
@@ -79,7 +71,6 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
-        tenantId: user.tenantId,
       },
     };
   }
@@ -95,7 +86,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: { id: payload.sub, tenantId: payload.tenantId, isActive: true },
+      where: { id: payload.sub, isActive: true },
     });
 
     if (!user) {
@@ -106,7 +97,6 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      tenantId: user.tenantId,
     });
 
     return { accessToken };
@@ -114,7 +104,6 @@ export class AuthService {
 
   async logout(refreshToken: string): Promise<void> {
     invalidatedRefreshTokens.add(refreshToken);
-    // Em produção: armazenar no Redis com TTL
   }
 
   private async generateTokens(payload: JwtPayload): Promise<TokenPair> {

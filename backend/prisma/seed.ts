@@ -1,4 +1,3 @@
-// ts-node não carrega .env sozinho; migrate/studio sim. Garante DATABASE_URL em qualquer invocação.
 import 'dotenv/config';
 
 import { PrismaClient, Role } from '@prisma/client';
@@ -31,19 +30,21 @@ Retorne EXATAMENTE este JSON, sem texto adicional, sem markdown:
 async function main() {
   console.log('[Seed] Iniciando seed de desenvolvimento...');
 
-  // Limpa dados existentes mantendo ordem de FK
   await prisma.funnelEvent.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.aiAnalysis.deleteMany();
   await prisma.message.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.user.deleteMany();
-  await prisma.tenant.deleteMany();
+  await prisma.whatsappConnection.deleteMany();
+  await prisma.appSettings.deleteMany();
 
-  // 1. Cria tenant de demonstração
-  const tenant = await prisma.tenant.create({
+  const defaultInstance =
+    process.env.BAILEYS_DEFAULT_INSTANCE?.trim() || 'leadwatch';
+
+  await prisma.appSettings.create({
     data: {
-      id: 'tenant-demo-00000000-0000-0000-0000',
+      id: 'default',
       name: 'Demo Seguradora',
       slug: 'demo-seguradora',
       aiPrompt: DEFAULT_AI_PROMPT,
@@ -53,13 +54,21 @@ async function main() {
     },
   });
 
-  console.log(`[Seed] Tenant criado: ${tenant.name} (${tenant.id})`);
+  console.log('[Seed] AppSettings criado (id=default)');
 
-  // 2. Cria usuário admin
+  await prisma.whatsappConnection.create({
+    data: {
+      id: 'default',
+      name: 'WhatsApp',
+      instanceName: defaultInstance,
+      status: 'DISCONNECTED',
+    },
+  });
+  console.log('[Seed] WhatsappConnection singleton criado (id=default)');
+
   const adminPassword = await bcrypt.hash('Admin@123', 12);
   const admin = await prisma.user.create({
     data: {
-      tenantId: tenant.id,
       email: 'admin@leadwatch.com',
       password: adminPassword,
       name: 'Administrador',
@@ -70,11 +79,9 @@ async function main() {
 
   console.log(`[Seed] Admin criado: ${admin.email}`);
 
-  // 3. Cria usuário agente para testes
   const agentPassword = await bcrypt.hash('Agent@123', 12);
   const agent = await prisma.user.create({
     data: {
-      tenantId: tenant.id,
       email: 'agente@leadwatch.com',
       password: agentPassword,
       name: 'Agente de Vendas',
@@ -85,11 +92,9 @@ async function main() {
 
   console.log(`[Seed] Agente criado: ${agent.email}`);
 
-  // 4. Cria alguns leads de demonstração
   const leads = await Promise.all([
     prisma.lead.create({
       data: {
-        tenantId: tenant.id,
         chatId: '5511987650001@s.whatsapp.net',
         phone: '5511987650001',
         name: 'João Silva',
@@ -100,12 +105,11 @@ async function main() {
         sentiment: 'POSITIVO',
         confidenceScore: 0.92,
         priorityScore: 0.9,
-        lastMessageAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2h atrás
+        lastMessageAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
       },
     }),
     prisma.lead.create({
       data: {
-        tenantId: tenant.id,
         chatId: '5511987650002@s.whatsapp.net',
         phone: '5511987650002',
         name: 'Maria Oliveira',
@@ -116,17 +120,16 @@ async function main() {
         priorityScore: 0.5,
         needsHumanReview: false,
         missingFields: ['plate', 'email'],
-        lastMessageAt: new Date(Date.now() - 30 * 60 * 1000), // 30min atrás
+        lastMessageAt: new Date(Date.now() - 30 * 60 * 1000),
       },
     }),
     prisma.lead.create({
       data: {
-        tenantId: tenant.id,
         chatId: '5511987650003@s.whatsapp.net',
         phone: '5511987650003',
         name: 'Carlos Pereira',
         status: 'NOVO',
-        lastMessageAt: new Date(Date.now() - 5 * 60 * 1000), // 5min atrás
+        lastMessageAt: new Date(Date.now() - 5 * 60 * 1000),
       },
     }),
   ]);
@@ -135,9 +138,8 @@ async function main() {
 
   console.log('\n[Seed] ✅ Seed concluído com sucesso!');
   console.log('─────────────────────────────────────────');
-  console.log(`Tenant ID:    ${tenant.id}`);
-  console.log(`Admin:        admin@leadwatch.com / Admin@123`);
-  console.log(`Agente:       agente@leadwatch.com / Agent@123`);
+  console.log('Admin:        admin@leadwatch.com / Admin@123');
+  console.log('Agente:       agente@leadwatch.com / Agent@123');
   console.log('─────────────────────────────────────────');
 }
 

@@ -23,12 +23,8 @@ export class LeadsService {
     private readonly messageProducer: MessageProducer,
   ) {}
 
-  async findAll(
-    tenantId: string,
-    filters: LeadFiltersDto,
-  ) {
+  async findAll(filters: LeadFiltersDto) {
     const where = {
-      tenantId,
       ...(filters.status && { status: filters.status as LeadStatus }),
       ...(filters.needsHumanReview !== undefined && {
         needsHumanReview: filters.needsHumanReview,
@@ -43,7 +39,17 @@ export class LeadsService {
       }),
     };
 
-    // Paginação cursor-based — mais eficiente que offset em grandes volumes
+    const orderBy =
+      filters.orderBy === 'lastMessageAt'
+        ? ([
+            { lastMessageAt: 'desc' as const },
+            { priorityScore: 'desc' as const },
+          ] as const)
+        : ([
+            { priorityScore: 'desc' as const },
+            { lastMessageAt: 'desc' as const },
+          ] as const);
+
     const items = await this.prisma.lead.findMany({
       where: {
         ...where,
@@ -51,11 +57,10 @@ export class LeadsService {
           createdAt: { lt: new Date(filters.cursor) },
         }),
       },
-      orderBy: [{ priorityScore: 'desc' }, { lastMessageAt: 'desc' }],
-      take: filters.limit + 1, // busca +1 para detectar se há próxima página
+      orderBy: [...orderBy],
+      take: filters.limit + 1,
       select: {
         id: true,
-        tenantId: true,
         phone: true,
         name: true,
         plate: true,
@@ -71,7 +76,6 @@ export class LeadsService {
         lastMessageAt: true,
         createdAt: true,
         updatedAt: true,
-        // chatId NUNCA exposto no frontend (regra crítica 7.1)
       },
     });
 
@@ -92,9 +96,9 @@ export class LeadsService {
     };
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(id: string) {
     const lead = await this.prisma.lead.findFirst({
-      where: { id, tenantId },
+      where: { id },
       include: {
         messages: {
           orderBy: { timestamp: 'desc' },
@@ -114,19 +118,17 @@ export class LeadsService {
       throw new NotFoundException('Lead não encontrado');
     }
 
-    // Remove chatId da resposta (regra crítica 7.1)
     const { chatId: _chatId, ...safeLead } = lead;
     return safeLead;
   }
 
   async update(
-    tenantId: string,
     id: string,
     dto: UpdateLeadDto,
     userId: string,
   ): Promise<Lead> {
     const lead = await this.prisma.lead.findFirst({
-      where: { id, tenantId },
+      where: { id },
     });
 
     if (!lead) {
@@ -137,15 +139,13 @@ export class LeadsService {
     const auditEntries = [];
     const updateData: Record<string, unknown> = {};
 
-    // Campos editáveis pelo humano — registra override e AuditLog
     const editableFields = ['name', 'plate', 'email'] as const;
     for (const field of editableFields) {
       const newValue = dto[field];
       if (newValue !== undefined && newValue !== lead[field]) {
         updateData[field] = newValue;
-        humanOverrideFields.add(field); // marca como protegido de sobrescrita por IA
+        humanOverrideFields.add(field);
         auditEntries.push({
-          tenantId,
           leadId: id,
           userId,
           field,
@@ -157,9 +157,7 @@ export class LeadsService {
     }
 
     if (dto.status && dto.status !== lead.status) {
-      // Delega ao PipelineService para registrar FunnelEvent
       return this.pipelineService.manualStatusChange(
-        tenantId,
         id,
         dto.status as LeadStatus,
         userId,
@@ -189,47 +187,36 @@ export class LeadsService {
     return updated;
   }
 
-  async reprocess(tenantId: string, id: string): Promise<{ queued: boolean }> {
+  async reprocess(id: string): Promise<{ queued: boolean }> {
     const lead = await this.prisma.lead.findFirst({
-      where: { id, tenantId },
+      where: { id },
     });
 
     if (!lead) {
       throw new NotFoundException('Lead não encontrado');
     }
 
-    // Reseta flags de revisão e recoloca na fila
     await this.prisma.lead.update({
       where: { id },
       data: { needsHumanReview: false },
     });
 
-    // Marca mensagens como não processadas para reprocessamento
     await this.prisma.message.updateMany({
-      where: { tenantId, leadId: id },
+      where: { leadId: id },
       data: { processed: false },
     });
 
-    await this.messageProducer.scheduleProcessing(
-      tenantId,
-      lead.chatId,
-      lead.id,
-    );
+    await this.messageProducer.scheduleProcessing(lead.chatId, lead.id);
 
     return { queued: true };
   }
 
-  /**
-   * Mensagens paginadas por cursor (timestamp).
-   * Sem cursor: bloco mais recente. Com cursor (id da mensagem mais antiga já carregada): mensagens mais antigas.
-   */
   async getMessages(
     leadId: string,
-    tenantId: string,
     query: GetMessagesDto,
   ): Promise<PaginatedMessagesResponseDto> {
     const lead = await this.prisma.lead.findFirst({
-      where: { id: leadId, tenantId },
+      where: { id: leadId },
       select: { id: true },
     });
     if (!lead) {
@@ -241,7 +228,7 @@ export class LeadsService {
     let beforeTimestamp: Date | undefined;
     if (query.cursor) {
       const cur = await this.prisma.message.findFirst({
-        where: { id: query.cursor, leadId, tenantId },
+        where: { id: query.cursor, leadId },
         select: { timestamp: true },
       });
       if (!cur) {
@@ -252,7 +239,6 @@ export class LeadsService {
 
     const where = {
       leadId,
-      tenantId,
       ...(beforeTimestamp && { timestamp: { lt: beforeTimestamp } }),
     };
 
@@ -269,9 +255,9 @@ export class LeadsService {
           processed: true,
         },
       }),
-      this.prisma.message.count({ where: { leadId, tenantId } }),
+      this.prisma.message.count({ where: { leadId } }),
       this.prisma.aiAnalysis.findFirst({
-        where: { leadId, tenantId },
+        where: { leadId },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -341,9 +327,9 @@ export class LeadsService {
     };
   }
 
-  async getHistory(tenantId: string, id: string) {
+  async getHistory(id: string) {
     const lead = await this.prisma.lead.findFirst({
-      where: { id, tenantId },
+      where: { id },
     });
 
     if (!lead) {
@@ -352,7 +338,7 @@ export class LeadsService {
 
     const [auditLogs, funnelEvents, aiAnalyses] = await Promise.all([
       this.prisma.auditLog.findMany({
-        where: { tenantId, leadId: id },
+        where: { leadId: id },
         orderBy: { createdAt: 'desc' },
         take: 50,
         include: {
@@ -362,12 +348,12 @@ export class LeadsService {
         },
       }),
       this.prisma.funnelEvent.findMany({
-        where: { tenantId, leadId: id },
+        where: { leadId: id },
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
       this.prisma.aiAnalysis.findMany({
-        where: { tenantId, leadId: id },
+        where: { leadId: id },
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
@@ -381,7 +367,6 @@ export class LeadsService {
           tokensUsed: true,
           latencyMs: true,
           createdAt: true,
-          // promptSent e rawResponse disponíveis apenas via /debug
         },
       }),
     ]);

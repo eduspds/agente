@@ -16,23 +16,19 @@ const BCRYPT_SALT_ROUNDS = 12;
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(
-    tenantId: string,
-    dto: CreateUserDto,
-  ): Promise<SafeUser> {
+  async create(dto: CreateUserDto): Promise<SafeUser> {
     const existing = await this.prisma.user.findUnique({
-      where: { tenantId_email: { tenantId, email: dto.email } },
+      where: { email: dto.email },
     });
 
     if (existing) {
-      throw new ConflictException('E-mail já cadastrado neste tenant');
+      throw new ConflictException('E-mail já cadastrado');
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
     const user = await this.prisma.user.create({
       data: {
-        tenantId,
         email: dto.email,
         password: hashedPassword,
         name: dto.name,
@@ -40,20 +36,15 @@ export class UsersService {
       },
     });
 
-    // Nunca retornar senha
     const { password: _password, ...safeUser } = user;
     return safeUser;
   }
 
-  async findAll(
-    tenantId: string,
-  ): Promise<SafeUser[]> {
-    const users = await this.prisma.user.findMany({
-      where: { tenantId },
+  async findAll(): Promise<SafeUser[]> {
+    return this.prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
-        tenantId: true,
         email: true,
         name: true,
         role: true,
@@ -62,16 +53,13 @@ export class UsersService {
         updatedAt: true,
       },
     });
-
-    return users;
   }
 
-  async findOne(tenantId: string, id: string): Promise<SafeUser> {
+  async findOne(id: string): Promise<SafeUser> {
     const user = await this.prisma.user.findFirst({
-      where: { id, tenantId },
+      where: { id },
       select: {
         id: true,
-        tenantId: true,
         email: true,
         name: true,
         role: true,
@@ -88,13 +76,9 @@ export class UsersService {
     return user;
   }
 
-  async update(
-    tenantId: string,
-    id: string,
-    dto: UpdateUserDto,
-  ): Promise<SafeUser> {
+  async update(id: string, dto: UpdateUserDto): Promise<SafeUser> {
     const existing = await this.prisma.user.findFirst({
-      where: { id, tenantId },
+      where: { id },
     });
     if (!existing) {
       throw new NotFoundException('Usuário não encontrado');
@@ -102,10 +86,10 @@ export class UsersService {
 
     if (dto.email && dto.email !== existing.email) {
       const emailTaken = await this.prisma.user.findUnique({
-        where: { tenantId_email: { tenantId, email: dto.email } },
+        where: { email: dto.email },
       });
       if (emailTaken) {
-        throw new ConflictException('E-mail já cadastrado neste tenant');
+        throw new ConflictException('E-mail já cadastrado');
       }
     }
 
@@ -125,7 +109,6 @@ export class UsersService {
       },
       select: {
         id: true,
-        tenantId: true,
         email: true,
         name: true,
         role: true,
@@ -138,8 +121,8 @@ export class UsersService {
     return updated;
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
-    await this.findOne(tenantId, id);
+  async remove(id: string): Promise<void> {
+    await this.findOne(id);
     await this.prisma.user.update({
       where: { id },
       data: { isActive: false },
