@@ -1,34 +1,71 @@
-import { z } from 'zod'
-import { Role } from '@prisma/client'
-
-const MAX_PAGE = 50
-
-export const ListUsersQuerySchema = z.object({
-  take: z.coerce.number().int().min(1).max(MAX_PAGE).optional().default(20),
-  cursor: z.string().uuid().optional(),
-  activeOnly: z
-    .string()
-    .optional()
-    .transform((s) => s === undefined || s !== 'false'),
-})
-
-export type ListUsersQueryDto = z.infer<typeof ListUsersQuerySchema>
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { z } from 'zod';
 
 export const CreateUserSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
-  role: z.nativeEnum(Role),
-})
+  email: z.string().email('E-mail inválido'),
+  password: z
+    .string()
+    .min(8, 'Senha deve ter no mínimo 8 caracteres')
+    .regex(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+      'Senha deve conter letras maiúsculas, minúsculas e números',
+    ),
+  name: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres').max(100),
+  role: z.enum(['ADMIN', 'AGENT', 'VIEWER']),
+});
 
-export type CreateUserDto = z.infer<typeof CreateUserSchema>
+export const UpdateUserSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  email: z.string().email('E-mail inválido').optional(),
+  role: z.enum(['ADMIN', 'AGENT', 'VIEWER']).optional(),
+  isActive: z.boolean().optional(),
+  password: z
+    .string()
+    .optional()
+    .refine((v) => !v || v.length >= 8, {
+      message: 'Senha deve ter no mínimo 8 caracteres',
+    })
+    .refine((v) => !v || /[A-Z]/.test(v), {
+      message: 'Senha deve conter ao menos uma letra maiúscula',
+    })
+    .refine((v) => !v || /[a-z]/.test(v), {
+      message: 'Senha deve conter ao menos uma letra minúscula',
+    })
+    .refine((v) => !v || /\d/.test(v), {
+      message: 'Senha deve conter ao menos um número',
+    }),
+});
 
-export const PatchUserSchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    role: z.nativeEnum(Role).optional(),
-    active: z.boolean().optional(),
-    password: z.string().min(8).optional(),
-  })
-  .strict()
+export type CreateUserDto = z.infer<typeof CreateUserSchema>;
+export type UpdateUserDto = z.infer<typeof UpdateUserSchema>;
 
-export type PatchUserDto = z.infer<typeof PatchUserSchema>
+export class CreateUserDtoSwagger {
+  @ApiProperty({ example: 'usuario@empresa.com' })
+  email!: string;
+
+  @ApiProperty({ example: 'Senha@123' })
+  password!: string;
+
+  @ApiProperty({ example: 'João Silva' })
+  name!: string;
+
+  @ApiProperty({ enum: ['ADMIN', 'AGENT', 'VIEWER'] })
+  role!: string;
+}
+
+export class UpdateUserDtoSwagger {
+  @ApiPropertyOptional({ example: 'João Silva Atualizado' })
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'joao@empresa.com' })
+  email?: string;
+
+  @ApiPropertyOptional({ enum: ['ADMIN', 'AGENT', 'VIEWER'] })
+  role?: string;
+
+  @ApiPropertyOptional()
+  isActive?: boolean;
+
+  @ApiPropertyOptional({ description: 'Nova senha (opcional)' })
+  password?: string;
+}

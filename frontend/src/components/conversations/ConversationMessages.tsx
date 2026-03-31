@@ -1,36 +1,43 @@
-interface Msg {
-  id: string
-  fromMe: boolean
-  body: string
-  timestamp: string
+import type { Message } from '../../types/models';
+import { formatDate, cn } from '../../lib/utils';
+
+interface ConversationMessagesProps {
+  messages: Message[];
 }
 
-export default function ConversationMessages({ messages }: { messages: Msg[] }) {
+export function ConversationMessages({ messages }: ConversationMessagesProps) {
   return (
-    <div className="space-y-3 max-w-3xl mx-auto">
-      {messages.map((m) => (
+    <div className="space-y-3 max-h-96 overflow-y-auto p-4">
+      {messages.length === 0 && (
+        <p className="text-slate-500 text-sm text-center py-4">
+          Sem mensagens capturadas
+        </p>
+      )}
+      {messages.map((msg) => (
         <div
-          key={m.id}
-          className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}
+          key={msg.id}
+          className={cn('flex', msg.fromMe ? 'justify-end' : 'justify-start')}
         >
           <div
-            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-              m.fromMe
-                ? 'bg-emerald-600 text-white rounded-br-md'
-                : 'bg-slate-800 text-slate-100 border border-slate-700 rounded-bl-md'
-            }`}
+            className={cn(
+              'max-w-xs lg:max-w-md px-3 py-2 rounded-xl text-sm',
+              msg.fromMe
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-200',
+            )}
           >
-            <p className="whitespace-pre-wrap break-words">{m.body}</p>
+            <p className="leading-relaxed">{msg.body}</p>
             <p
-              className={`text-[10px] mt-1.5 ${
-                m.fromMe ? 'text-emerald-200/80' : 'text-slate-500'
-              }`}
+              className={cn(
+                'text-xs mt-1',
+                msg.fromMe ? 'text-blue-200' : 'text-slate-500',
+              )}
             >
-              {new Date(m.timestamp).toLocaleString('pt-BR', { timeZone: 'UTC' })} UTC
+              {formatDate(msg.timestamp)}
             </p>
           </div>
         </div>
       ))}
     </div>
-  )
+  );
 }

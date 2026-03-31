@@ -1,33 +1,24 @@
-import { z } from 'zod'
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { z } from 'zod';
 
-export const PatchTenantGeneralSchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    specialistName: z.string().nullable().optional(),
-    specialistContact: z.string().nullable().optional(),
-  })
-  .strict()
+export const UpdateTenantSettingsSchema = z.object({
+  aiPrompt: z.string().min(10, 'Prompt deve ter no mínimo 10 caracteres').optional(),
+  requiredFields: z
+    .array(z.string())
+    .min(1, 'Deve ter ao menos 1 campo obrigatório')
+    .optional(),
+  name: z.string().min(2).max(100).optional(),
+});
 
-export type PatchTenantGeneralDto = z.infer<typeof PatchTenantGeneralSchema>
+export type UpdateTenantSettingsDto = z.infer<typeof UpdateTenantSettingsSchema>;
 
-export const PatchTenantAiSchema = z
-  .object({
-    aiProvider: z.string().min(1).optional(),
-    aiModel: z.string().min(1).optional(),
-    aiApiKey: z.string().optional(),
-    aiBaseUrl: z.string().min(1).optional(),
-    aiTimeoutMs: z.coerce.number().int().min(1000).optional(),
-    aiConfidThreshold: z.coerce.number().min(0).max(1).optional(),
-    aiPrompt: z.string().optional(),
-  })
-  .strict()
+export class UpdateTenantSettingsDtoSwagger {
+  @ApiPropertyOptional({ example: 'Você é um assistente de qualificação...' })
+  aiPrompt?: string;
 
-export type PatchTenantAiDto = z.infer<typeof PatchTenantAiSchema>
+  @ApiPropertyOptional({ example: ['name', 'plate', 'email'] })
+  requiredFields?: string[];
 
-export const PatchTenantFunnelSchema = z
-  .object({
-    requiredFields: z.array(z.string().min(1)).min(1).optional(),
-  })
-  .strict()
-
-export type PatchTenantFunnelDto = z.infer<typeof PatchTenantFunnelSchema>
+  @ApiPropertyOptional({ example: 'Minha Empresa' })
+  name?: string;
+}

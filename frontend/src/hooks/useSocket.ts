@@ -1,24 +1,45 @@
-import { useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { getSocket } from '@/lib/socket'
+import { useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { getSocket } from '../lib/socket';
+import type { Lead } from '../types/models';
 
 export function useSocket() {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
+
+  const handleLeadUpdated = useCallback(
+    (lead: Lead) => {
+      // Atualiza cache do lead específico
+      queryClient.setQueryData(['lead', lead.id], (old: Lead | undefined) =>
+        old ? { ...old, ...lead } : lead,
+      );
+      // Invalida lista de leads para refetch
+      void queryClient.invalidateQueries({
+        queryKey: ['leads'],
+        refetchType: 'active',
+      });
+      // Invalida stats do dashboard
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    [queryClient],
+  );
+
+  const handleLeadCreated = useCallback(
+    (_lead: Lead) => {
+      void queryClient.invalidateQueries({ queryKey: ['leads'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
-    const socket = getSocket()
+    const socket = getSocket();
 
-    const onLeadUpdated = () => {
-      void queryClient.invalidateQueries({ queryKey: ['leads'] })
-      void queryClient.invalidateQueries({ queryKey: ['lead'] })
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      void queryClient.invalidateQueries({ queryKey: ['conversation'] })
-      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'stats'] })
-    }
+    socket.on('lead:updated', handleLeadUpdated);
+    socket.on('lead:created', handleLeadCreated);
 
-    socket.on('lead:updated', onLeadUpdated)
     return () => {
-      socket.off('lead:updated', onLeadUpdated)
-    }
-  }, [queryClient])
+      socket.off('lead:updated', handleLeadUpdated);
+      socket.off('lead:created', handleLeadCreated);
+    };
+  }, [handleLeadUpdated, handleLeadCreated]);
 }

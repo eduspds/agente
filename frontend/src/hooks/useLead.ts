@@ -1,15 +1,27 @@
-import { useQuery } from '@tanstack/react-query'
-import api from '@/lib/api'
-import type { Lead } from '@/types/models'
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import type { LeadHistory, LeadWithMessages } from '../types/models';
 
-export function useLead(id: string | undefined) {
+export function useLead(id: string) {
   return useQuery({
     queryKey: ['lead', id],
-    enabled: Boolean(id),
-    staleTime: 30000,
     queryFn: async () => {
-      const { data } = await api.get<Lead>(`/leads/${id as string}`)
-      return data
+      const { data } = await api.get<LeadWithMessages>(`/leads/${id}`);
+      return data;
     },
-  })
+    enabled: Boolean(id),
+    staleTime: 15_000,
+  });
+}
+
+export function useLeadHistory(id: string) {
+  return useQuery({
+    queryKey: ['lead-history', id],
+    queryFn: async () => {
+      const { data } = await api.get<LeadHistory>(`/leads/${id}/history`);
+      return data;
+    },
+    enabled: Boolean(id),
+    staleTime: 30_000,
+  });
 }

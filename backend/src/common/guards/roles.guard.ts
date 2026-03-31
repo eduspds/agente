@@ -1,24 +1,37 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common'
-import { Reflector } from '@nestjs/core'
-import { Role } from '@prisma/client'
-import { ROLES_KEY } from '../decorators/roles.decorator'
-import { User } from '@prisma/client'
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+import { JwtPayload } from './tenant.guard';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ])
-    if (!requiredRoles) return true
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
-    const { user } = context.switchToHttp().getRequest<{ user: User }>()
+    if (!requiredRoles || requiredRoles.length === 0) return true;
+
+    const request = context.switchToHttp().getRequest<Request>();
+    const user = request.user as JwtPayload | undefined;
+
+    if (!user) return false;
+
     if (!requiredRoles.includes(user.role)) {
-      throw new ForbiddenException('Acesso negado: permissão insuficiente')
+      throw new ForbiddenException(
+        `Acesso negado. Role necessária: ${requiredRoles.join(' ou ')}`,
+      );
     }
-    return true
+
+    return true;
   }
 }

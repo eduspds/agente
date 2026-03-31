@@ -1,26 +1,34 @@
-import { io, type Socket } from 'socket.io-client'
-import { useAuthStore } from '@/store/auth.store'
+import { io, Socket } from 'socket.io-client';
 
-let socket: Socket | null = null
+const WS_URL = import.meta.env.VITE_WS_URL ?? 'http://localhost:3000';
+
+let socket: Socket | null = null;
 
 export function getSocket(): Socket {
-  const { token } = useAuthStore.getState()
-  if (!socket || socket.disconnected) {
-    socket?.removeAllListeners()
-    socket?.disconnect()
-    socket = io('/', {
-      path: '/socket.io',
+  if (!socket) {
+    const token = localStorage.getItem('accessToken');
+
+    socket = io(WS_URL, {
       auth: { token },
+      reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-    })
+      reconnectionDelayMax: 10000,
+      transports: ['websocket', 'polling'],
+    });
   }
-  return socket
+
+  return socket;
 }
 
 export function disconnectSocket(): void {
   if (socket) {
-    socket.disconnect()
-    socket = null
+    socket.disconnect();
+    socket = null;
   }
+}
+
+export function reconnectSocket(): void {
+  disconnectSocket();
+  getSocket();
 }

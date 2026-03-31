@@ -1,39 +1,84 @@
-import { Controller, Get, Patch, Body, Req } from '@nestjs/common'
-import { Request } from 'express'
-import { User, Role } from '@prisma/client'
-import { TenantsService } from './tenants.service'
 import {
-  PatchTenantAiSchema,
-  PatchTenantFunnelSchema,
-  PatchTenantGeneralSchema,
-} from './dto/tenant.dto'
-import { Roles } from '../../common/decorators/roles.decorator'
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Request } from 'express';
+import { TenantsService } from './tenants.service';
+import { AiSettingsService } from './ai-settings.service';
+import {
+  UpdateTenantSettingsDtoSwagger,
+  UpdateTenantSettingsSchema,
+} from './dto/tenant.dto';
+import { Roles } from '../../common/decorators/roles.decorator';
 
-@Controller('tenants')
-@Roles(Role.ADMIN)
+@ApiTags('settings')
+@ApiBearerAuth('access-token')
+@ApiSecurity('tenant-id')
+@Controller('settings')
 export class TenantsController {
-  constructor(private tenantsService: TenantsService) {}
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly aiSettingsService: AiSettingsService,
+  ) {}
 
-  @Get('me')
-  getMe(@Req() req: Request & { user: User }) {
-    return this.tenantsService.getMe(req.user.tenantId)
+  @Get()
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Obter configurações do tenant (apenas ADMIN)' })
+  async getSettings(@Req() req: Request) {
+    return this.tenantsService.getSettings(req.tenantId as string);
   }
 
-  @Patch('me/general')
-  patchGeneral(@Req() req: Request & { user: User }, @Body() body: unknown) {
-    const dto = PatchTenantGeneralSchema.parse(body)
-    return this.tenantsService.patchGeneral(req.user.tenantId, dto)
+  @Get('ai')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Obter configuração completa da IA (apenas ADMIN)' })
+  async getAiConfig(@Req() req: Request) {
+    return this.aiSettingsService.getAiConfig(req.tenantId as string);
   }
 
-  @Patch('me/ai')
-  patchAi(@Req() req: Request & { user: User }, @Body() body: unknown) {
-    const dto = PatchTenantAiSchema.parse(body)
-    return this.tenantsService.patchAi(req.user.tenantId, dto)
+  @Put('ai')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Salvar configuração da IA (apenas ADMIN)' })
+  async putAiConfig(@Req() req: Request, @Body() body: unknown) {
+    return this.aiSettingsService.updateAiConfig(
+      req.tenantId as string,
+      body,
+    );
   }
 
-  @Patch('me/funnel')
-  patchFunnel(@Req() req: Request & { user: User }, @Body() body: unknown) {
-    const dto = PatchTenantFunnelSchema.parse(body)
-    return this.tenantsService.patchFunnel(req.user.tenantId, dto)
+  @Post('ai/test')
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Testar conexão com o provedor de IA (apenas ADMIN)' })
+  async testAiConnection(@Body() body: unknown) {
+    return this.aiSettingsService.testConnection(body);
+  }
+
+  @Patch()
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Atualizar configurações do tenant (apenas ADMIN)' })
+  @ApiResponse({ status: 200 })
+  async updateSettings(@Req() req: Request, @Body() body: unknown) {
+    const result = UpdateTenantSettingsSchema.safeParse(body);
+    if (!result.success) {
+      throw new BadRequestException(
+        result.error.errors.map((e) => e.message).join(', '),
+      );
+    }
+    return this.tenantsService.updateSettings(
+      req.tenantId as string,
+      result.data,
+    );
   }
 }

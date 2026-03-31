@@ -1,70 +1,99 @@
+version: '3.9'
+
 services:
+  # ─── Banco de dados ───────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: leadwatch-postgres
+    container_name: leadwatch_postgres
     environment:
-      POSTGRES_USER: leadwatch
-      POSTGRES_PASSWORD: leadwatch123
       POSTGRES_DB: leadwatch
+      POSTGRES_USER: leadwatch
+      POSTGRES_PASSWORD: leadwatch
+    ports:
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U leadwatch"]
-      interval: 5s
+      test: ['CMD-SHELL', 'pg_isready -U leadwatch']
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
+  # ─── Redis ────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: leadwatch-redis
-    command: redis-server --appendonly yes
+    container_name: leadwatch_redis
+    ports:
+      - '6379:6379'
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ─── Backend (com hot reload) ─────────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: leadwatch-backend
-    env_file: .env
+      target: builder
+    container_name: leadwatch_backend
+    command: npm run start:dev
     environment:
-      DATABASE_URL: postgresql://leadwatch:leadwatch123@postgres:5432/leadwatch
+      NODE_ENV: development
+      PORT: 3000
+      API_PREFIX: api/v1
+      DATABASE_URL: postgresql://leadwatch:leadwatch@postgres:5432/leadwatch
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      JWT_SECRET: dev_jwt_secret_change_in_prod
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: dev_refresh_secret_change_in_prod
+      JWT_REFRESH_EXPIRES_IN: 7d
+      AI_PROVIDER: openai
+      AI_API_KEY: ${AI_API_KEY:-sk-placeholder}
+      AI_MODEL: gpt-4o-mini
+      AI_BASE_URL: https://api.openai.com/v1
+      AI_TIMEOUT_MS: 30000
+      AI_MAX_TOKENS: 1000
+      AI_CONFIDENCE_THRESHOLD: 0.6
+      QUEUE_DEBOUNCE_MS: 180000
+      QUEUE_MAX_RETRIES: 3
+      QUEUE_BACKOFF_MS: 5000
+      BAILEYS_WEBHOOK_SECRET: dev_webhook_secret
+      CORS_ORIGIN: http://localhost:5173
     ports:
-      - "3000:3000"
+      - '3000:3000'
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+      - /app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: >
-      sh -c "
-        npx prisma migrate deploy &&
-        npx prisma db seed &&
-        node dist/main.js
-      "
-    restart: unless-stopped
 
+  # ─── Frontend (com hot reload Vite) ──────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: leadwatch-frontend
+      target: builder
+    container_name: leadwatch_frontend
+    command: npm run dev -- --host
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
+      VITE_WS_URL: http://localhost:3000
     ports:
-      - "5173:80"
+      - '5173:5173'
+    volumes:
+      - ./frontend/src:/app/src
+      - /app/node_modules
     depends_on:
       - backend
-    restart: unless-stopped
 
 volumes:
   postgres_data:

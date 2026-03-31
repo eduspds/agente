@@ -1,23 +1,16 @@
-import { Module } from '@nestjs/common'
-import { JwtModule } from '@nestjs/jwt'
-import { ConfigModule, ConfigService } from '@nestjs/config'
-import { DashboardController } from './dashboard.controller'
-import { DashboardService } from './dashboard.service'
-import { DashboardGateway } from './dashboard.gateway'
-import { AppConfig } from '../../config/configuration'
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { DashboardController, DebugController } from './dashboard.controller';
+import { DashboardService } from './dashboard.service';
+import { DashboardGateway } from './dashboard.gateway';
 
 @Module({
   imports: [
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<AppConfig>) => ({
-        secret: config.get('jwt.secret', { infer: true }),
-      }),
-    }),
+    // JwtModule necessário para verificação de token no WebSocket handshake
+    JwtModule.register({}),
   ],
-  controllers: [DashboardController],
+  controllers: [DashboardController, DebugController],
   providers: [DashboardService, DashboardGateway],
-  exports: [DashboardGateway, DashboardService],
+  exports: [DashboardService, DashboardGateway],
 })
 export class DashboardModule {}

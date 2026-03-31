@@ -1,36 +1,57 @@
-import { z } from 'zod'
-import { LeadStatus } from '@prisma/client'
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { z } from 'zod';
 
-const MAX_PAGE = 50
-
-export const ListLeadsQuerySchema = z.object({
-  take: z.coerce.number().int().min(1).max(MAX_PAGE).optional().default(20),
-  cursor: z.string().uuid().optional(),
-  status: z.nativeEnum(LeadStatus).optional(),
-})
-
-export type ListLeadsQueryDto = z.infer<typeof ListLeadsQuerySchema>
-
-export const CreateLeadSchema = z.object({
-  chatId: z.string().min(1),
-  phone: z.string().min(1),
-  name: z.string().optional(),
-  plate: z.string().optional(),
+export const UpdateLeadSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  plate: z.string().min(1).max(20).optional(),
   email: z.string().email().optional(),
-  status: z.nativeEnum(LeadStatus).optional(),
-})
+  status: z
+    .enum([
+      'NOVO',
+      'EM_QUALIFICACAO',
+      'QUALIFICADO',
+      'DESQUALIFICADO',
+      'ESPECIALISTA',
+    ])
+    .optional(),
+  disqualifyReason: z.string().optional(),
+});
 
-export type CreateLeadDto = z.infer<typeof CreateLeadSchema>
+export const LeadFiltersSchema = z.object({
+  status: z
+    .enum([
+      'NOVO',
+      'EM_QUALIFICACAO',
+      'QUALIFICADO',
+      'DESQUALIFICADO',
+      'ESPECIALISTA',
+      'PENDENTE_IDENTIFICACAO',
+    ])
+    .optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  needsHumanReview: z.coerce.boolean().optional(),
+  search: z.string().optional(),
+});
 
-export const PatchLeadSchema = z
-  .object({
-    name: z.string().nullable().optional(),
-    plate: z.string().nullable().optional(),
-    email: z.string().email().nullable().optional(),
-    status: z.nativeEnum(LeadStatus).optional(),
-    intent: z.string().nullable().optional(),
-    sentiment: z.string().nullable().optional(),
+export type UpdateLeadDto = z.infer<typeof UpdateLeadSchema>;
+export type LeadFiltersDto = z.infer<typeof LeadFiltersSchema>;
+
+export class UpdateLeadDtoSwagger {
+  @ApiPropertyOptional()
+  name?: string;
+
+  @ApiPropertyOptional()
+  plate?: string;
+
+  @ApiPropertyOptional()
+  email?: string;
+
+  @ApiPropertyOptional({
+    enum: ['NOVO', 'EM_QUALIFICACAO', 'QUALIFICADO', 'DESQUALIFICADO', 'ESPECIALISTA'],
   })
-  .strict()
+  status?: string;
 
-export type PatchLeadDto = z.infer<typeof PatchLeadSchema>
+  @ApiPropertyOptional()
+  disqualifyReason?: string;
+}

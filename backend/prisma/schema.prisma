@@ -1,3 +1,6 @@
+// LeadWatch — Prisma Schema
+// Multi-tenant: todo where obrigatoriamente inclui tenantId
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,6 +15,7 @@ datasource db {
 enum Role {
   ADMIN
   AGENT
+  VIEWER
 }
 
 enum LeadStatus {
@@ -20,6 +24,7 @@ enum LeadStatus {
   QUALIFICADO
   DESQUALIFICADO
   ESPECIALISTA
+  PENDENTE_IDENTIFICACAO
 }
 
 enum Source {
@@ -28,55 +33,69 @@ enum Source {
   SYSTEM
 }
 
-enum WhatsappStatus {
+enum ConnectionStatus {
+  CONNECTED
   DISCONNECTED
   CONNECTING
-  CONNECTED
+  QR_PENDING
 }
 
-// ─── Modelos ──────────────────────────────────────────────────────────────────
+// ─── Tenant ───────────────────────────────────────────────────────────────────
 
 model Tenant {
-  id                String   @id @default(uuid())
-  name              String
-  slug              String   @unique
-  active            Boolean  @default(true)
+  id             String   @id @default(uuid())
+  name           String
+  slug           String   @unique
+  // Prompt versionado — cada tenant pode customizar o prompt base
+  aiPrompt       String   @db.Text
+  promptVersion  Int      @default(1)
+  // Campos obrigatórios para qualificar um lead (ex: ["name","plate","email"])
+  requiredFields String[]
+  // Overrides de IA (provedor, modelo, truncamento, gatilhos, etc.) — JSON
+  aiSettings     Json     @default("{}")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  // IA
-  aiProvider        String   @default("openai")
-  aiModel           String   @default("gpt-4o-mini")
-  aiApiKey          String   @default("")
-  aiBaseUrl         String   @default("https://api.openai.com/v1")
-  aiTimeoutMs       Int      @default(30000)
-  aiConfidThreshold Float    @default(0.6)
-  aiPrompt          String   @default("")
-  promptVersion     Int      @default(1)
-
-  // Funil
-  requiredFields    String[] @default(["name", "plate", "email"])
-  specialistName    String?
-  specialistContact String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users             User[]
-  leads             Lead[]
-  messages          Message[]
-  aiAnalyses        AiAnalysis[]
-  auditLogs         AuditLog[]
-  funnelEvents      FunnelEvent[]
-  whatsappInstance  WhatsappInstance?
+  users        User[]
+  leads        Lead[]
+  messages     Message[]
+  aiAnalyses   AiAnalysis[]
+  auditLogs    AuditLog[]
+  funnelEvents FunnelEvent[]
+  whatsappConnections WhatsappConnection[]
 }
+
+// ─── Conexões WhatsApp (instâncias Baileys / Evolution) por tenant ───────────
+
+model WhatsappConnection {
+  id           String           @id @default(uuid())
+  tenantId     String
+  name         String
+  instanceName String
+  status       ConnectionStatus @default(DISCONNECTED)
+  phone        String?
+  qrCode       String?          @db.Text
+  lastSeenAt   DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, instanceName])
+  @@index([tenantId])
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
 
 model User {
   id        String   @id @default(uuid())
   tenantId  String
   email     String
-  password  String
-  role      Role     @default(AGENT)
+  password  String   // bcrypt hash — nunca retornar em respostas
+  role      Role
   name      String
-  active    Boolean  @default(true)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -84,28 +103,38 @@ model User {
   auditLogs AuditLog[]
 
   @@unique([tenantId, email])
-  @@index([tenantId, active])
+  @@index([tenantId])
 }
 
+// ─── Lead ─────────────────────────────────────────────────────────────────────
+
 model Lead {
-  id              String     @id @default(uuid())
-  tenantId        String
-  chatId          String
-  phone           String
-  name            String?
-  plate           String?
-  email           String?
-  status          LeadStatus @default(NOVO)
-  intent          String?
-  sentiment       String?
+  id             String     @id @default(uuid())
+  tenantId       String
+  // chatId: identificador interno do WhatsApp (pode ser LID ou PN@s.whatsapp.net)
+  chatId         String
+  // phone: SEMPRE o número real no formato 55XXXXXXXXXX, nunca @lid
+  phone          String?
+  name           String?
+  plate          String?
+  email          String?
+  status         LeadStatus @default(NOVO)
+  intent         String?
+  sentiment      String?
   confidenceScore Float?
   priorityScore   Float?
-  needsHumanReview Boolean   @default(false)
-  lastMessageAt   DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  // Indica que o confidence da IA ficou abaixo do threshold (0.6)
+  needsHumanReview Boolean  @default(false)
+  // Campos com override humano não são sobrescritos por reprocessamento automático
+  humanOverrideFields String[] @default([])
+  summary        String?    @db.Text
+  missingFields  String[]   @default([])
+  disqualifyReason String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages     Message[]
   aiAnalyses   AiAnalysis[]
   auditLogs    AuditLog[]
@@ -114,67 +143,82 @@ model Lead {
   @@unique([tenantId, chatId])
   @@index([tenantId, status])
   @@index([tenantId, lastMessageAt])
+  @@index([tenantId, priorityScore])
 }
 
+// ─── Message ──────────────────────────────────────────────────────────────────
+
 model Message {
-  id         String   @id @default(uuid())
-  tenantId   String
-  leadId     String
-  messageId  String   @unique
-  chatId     String
-  fromMe     Boolean
-  body       String
-  timestamp  DateTime
-  processed  Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  tenantId  String
+  leadId    String
+  // messageId: ID original da baileys API — chave de idempotência
+  messageId String   @unique
+  chatId    String
+  fromMe    Boolean
+  body      String   @db.Text
+  timestamp DateTime
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, chatId, timestamp])
-  @@index([leadId, processed])
+  @@index([tenantId, leadId, processed])
 }
+
+// ─── AiAnalysis ───────────────────────────────────────────────────────────────
 
 model AiAnalysis {
   id              String   @id @default(uuid())
   tenantId        String
   leadId          String
+  // IDs das mensagens incluídas nesta análise
   messageIds      String[]
-  promptSent      String
-  rawResponse     String
-  parsedResult    Json
+  promptSent      String   @db.Text  // log completo do prompt enviado
+  rawResponse     String   @db.Text  // resposta bruta da IA
+  parsedResult    Json               // resultado após parse e validação Zod
   intent          String
   sentiment       String
   confidenceScore Float
-  extractedFields Json
-  mentionedCompany  Boolean @default(false)
-  mentionedLicense  Boolean @default(false)
+  extractedFields Json     // { name, plate, email, ... }
   promptVersion   Int
+  cacheHit        Boolean  @default(false)
+  tokensUsed      Int?
+  latencyMs       Int?
   createdAt       DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, leadId])
+  @@index([tenantId, createdAt])
 }
 
+// ─── AuditLog ─────────────────────────────────────────────────────────────────
+
 model AuditLog {
-  id       String  @id @default(uuid())
+  id       String   @id @default(uuid())
   tenantId String
   leadId   String
-  userId   String
+  userId   String?  // null quando source=AI ou SYSTEM
   field    String
   oldValue String?
   newValue String?
   source   Source
+  metadata Json?    // contexto adicional (jobId, promptVersion, etc.)
   createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, leadId])
+  @@index([tenantId, createdAt])
 }
+
+// ─── FunnelEvent ──────────────────────────────────────────────────────────────
 
 model FunnelEvent {
   id          String     @id @default(uuid())
@@ -183,24 +227,13 @@ model FunnelEvent {
   fromStatus  LeadStatus
   toStatus    LeadStatus
   reason      String?
-  triggeredBy String
+  triggeredBy String     // AI | HUMAN | SYSTEM
+  metadata    Json?
   createdAt   DateTime   @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, leadId])
-}
-
-model WhatsappInstance {
-  id           String         @id @default(uuid())
-  tenantId     String         @unique
-  instanceName String         @unique
-  phone        String?
-  status       WhatsappStatus @default(DISCONNECTED)
-  webhookUrl   String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([tenantId, createdAt])
 }

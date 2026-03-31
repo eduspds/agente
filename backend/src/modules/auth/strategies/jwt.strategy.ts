@@ -1,36 +1,23 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
-import { PassportStrategy } from '@nestjs/passport'
-import { ExtractJwt, Strategy } from 'passport-jwt'
-import { ConfigService } from '@nestjs/config'
-import { PrismaService } from '../../../prisma/prisma.service'
-import { AppConfig } from '../../../config/configuration'
-import { User } from '@prisma/client'
-
-export interface JwtPayload {
-  sub: string
-  email: string
-  role: string
-  tenantId: string
-}
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { JwtPayload } from '../.././../common/guards/tenant.guard';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(
-    configService: ConfigService<AppConfig>,
-    private prisma: PrismaService,
-  ) {
+  constructor(private readonly configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('jwt.secret', { infer: true }) ?? '',
-    })
+      secretOrKey: configService.get<string>('jwt.secret') as string,
+    });
   }
 
-  async validate(payload: JwtPayload): Promise<User> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: payload.sub, tenantId: payload.tenantId, active: true },
-    })
-    if (!user) throw new UnauthorizedException('Usuário não encontrado ou inativo')
-    return user
+  validate(payload: JwtPayload): JwtPayload {
+    if (!payload.sub || !payload.tenantId) {
+      throw new UnauthorizedException('Token inválido: payload incompleto');
+    }
+    return payload;
   }
 }

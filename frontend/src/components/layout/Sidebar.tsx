@@ -1,71 +1,89 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard,
+  BarChart3,
   Users,
-  MessageCircle,
-  Smartphone,
+  MessageSquare,
   Settings,
-  Kanban,
   LogOut,
-} from 'lucide-react'
-import { useAuthStore } from '@/store/auth.store'
+  Zap,
+  Bell,
+} from 'lucide-react';
+import { useAuthStore } from '../../store/auth.store';
+import { useAuth } from '../../hooks/useAuth';
+import { cn } from '../../lib/utils';
 
-const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-    isActive ? 'bg-emerald-600/20 text-emerald-400' : 'text-slate-300 hover:bg-slate-800'
-  }`
+const navItems = [
+  { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
+  { to: '/leads', icon: MessageSquare, label: 'Leads' },
+  { to: '/users', icon: Users, label: 'Usuários', adminOnly: true },
+  { to: '/settings', icon: Settings, label: 'Configurações', adminOnly: true },
+];
 
-export default function Sidebar({ onLogout }: { onLogout: () => void }) {
-  const role = useAuthStore((s) => s.user?.role)
-
-  const adminNav = (
-    <>
-      <NavLink to="/whatsapp" className={linkClass}>
-        <Smartphone className="w-5 h-5 shrink-0" />
-        WhatsApp
-      </NavLink>
-      <NavLink to="/users" className={linkClass}>
-        <Users className="w-5 h-5 shrink-0" />
-        Usuários
-      </NavLink>
-      <NavLink to="/settings" className={linkClass}>
-        <Settings className="w-5 h-5 shrink-0" />
-        Configurações
-      </NavLink>
-    </>
-  )
+export function Sidebar() {
+  const { user } = useAuthStore();
+  const { logout, isLoggingOut } = useAuth();
 
   return (
-    <aside className="w-56 min-h-screen bg-slate-900 border-r border-slate-800 flex flex-col">
+    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+      {/* Logo */}
       <div className="p-6 border-b border-slate-800">
-        <h1 className="text-lg font-bold text-white">LeadWatch</h1>
-        <p className="text-xs text-slate-500 mt-1">Inteligência de vendas</p>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <Zap className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h1 className="text-white font-bold text-sm">LeadWatch</h1>
+            <p className="text-slate-400 text-xs">Inteligência de Vendas</p>
+          </div>
+        </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1">
-        <NavLink to="/dashboard" className={linkClass}>
-          <LayoutDashboard className="w-5 h-5 shrink-0" />
-          Dashboard
-        </NavLink>
-        <NavLink to="/leads" className={linkClass}>
-          <Kanban className="w-5 h-5 shrink-0" />
-          Leads
-        </NavLink>
-        <NavLink to="/conversations" className={linkClass}>
-          <MessageCircle className="w-5 h-5 shrink-0" />
-          Conversas
-        </NavLink>
-        {role === 'ADMIN' ? adminNav : null}
+
+      {/* Nav */}
+      <nav className="flex-1 p-4 space-y-1">
+        {navItems.map((item) => {
+          if (item.adminOnly && user?.role !== 'ADMIN') return null;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                  isActive
+                    ? 'bg-blue-600/20 text-blue-400 border border-blue-600/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800',
+                )
+              }
+            >
+              <item.icon className="w-4 h-4 shrink-0" />
+              {item.label}
+            </NavLink>
+          );
+        })}
       </nav>
-      <div className="p-3 border-t border-slate-800">
+
+      {/* User */}
+      <div className="p-4 border-t border-slate-800">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-xs font-bold text-white">
+            {user?.name?.charAt(0).toUpperCase() ?? 'U'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">
+              {user?.name}
+            </p>
+            <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+          </div>
+        </div>
         <button
-          type="button"
-          onClick={onLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          onClick={() => logout()}
+          disabled={isLoggingOut}
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
         >
-          <LogOut className="w-5 h-5 shrink-0" />
+          <LogOut className="w-4 h-4" />
           Sair
         </button>
       </div>
     </aside>
-  )
+  );
 }

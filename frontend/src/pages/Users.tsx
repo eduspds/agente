@@ -1,139 +1,111 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import api from '@/lib/api'
-import type { UserRow } from '@/types/models'
+import { useQuery } from '@tanstack/react-query';
+import { UserPlus, Shield, User as UserIcon } from 'lucide-react';
+import { api } from '../lib/api';
+import type { User } from '../types/models';
+import { formatDate, cn } from '../lib/utils';
 
-interface UsersListResponse {
-  items: UserRow[]
-  nextCursor?: string
-}
+const ROLE_STYLES: Record<string, string> = {
+  ADMIN: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  AGENT: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  VIEWER: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+};
 
-interface CreateUserResponse {
-  user: UserRow
-  initialPassword: string
-}
-
-export default function UsersPage() {
-  const queryClient = useQueryClient()
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
-
-  const list = useQuery({
+export function Users() {
+  const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const { data } = await api.get<UsersListResponse>('/users?take=50')
-      return data
+      const { data } = await api.get<User[]>('/users');
+      return data;
     },
-  })
-
-  const createUser = useMutation({
-    mutationFn: async () => {
-      const email = window.prompt('E-mail do novo usuário')
-      if (!email) return null
-      const name = window.prompt('Nome') ?? 'Agente'
-      const { data } = await api.post<CreateUserResponse>('/users', {
-        email,
-        name,
-        role: 'AGENT',
-      })
-      return data
-    },
-    onSuccess: (res) => {
-      if (!res) return
-      setCreatedPassword(res.initialPassword)
-      void queryClient.invalidateQueries({ queryKey: ['users'] })
-    },
-  })
-
-  const toggleActive = useMutation({
-    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      await api.patch(`/users/${id}`, { active })
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['users'] })
-    },
-  })
-
-  if (list.isLoading) {
-    return <div className="p-8 text-slate-400">Carregando usuários…</div>
-  }
-
-  if (list.error || !list.data) {
-    return <div className="p-8 text-red-400">Sem permissão ou erro ao listar usuários.</div>
-  }
+  });
 
   return (
-    <div className="p-8 max-w-4xl space-y-6">
-      <div className="flex justify-between items-center gap-4 flex-wrap">
+    <div className="p-8 space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Usuários</h2>
-          <p className="text-slate-500 text-sm mt-1">Somente administradores</p>
+          <h1 className="text-2xl font-bold text-white">Usuários</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Gerenciar acessos da equipe
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={() => createUser.mutate()}
-          disabled={createUser.isPending}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm"
-        >
-          Novo usuário
+        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-all">
+          <UserPlus className="w-4 h-4" />
+          Convidar usuário
         </button>
       </div>
 
-      {createdPassword ? (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
-          <p className="font-medium">Senha inicial gerada (copie agora):</p>
-          <p className="font-mono mt-2 text-white">{createdPassword}</p>
-          <button
-            type="button"
-            className="mt-3 text-xs text-amber-300 underline"
-            onClick={() => setCreatedPassword(null)}
-          >
-            Ocultar
-          </button>
-        </div>
-      ) : null}
-
-      <div className="rounded-xl border border-slate-800 overflow-hidden">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-slate-900 text-slate-400 uppercase text-xs">
-            <tr>
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">E-mail</th>
-              <th className="px-4 py-3">Papel</th>
-              <th className="px-4 py-3">Ativo</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800 bg-slate-950">
-            {list.data.items.map((u) => (
-              <tr key={u.id} className="hover:bg-slate-900/50">
-                <td className="px-4 py-3 text-white">{u.name}</td>
-                <td className="px-4 py-3 text-slate-400">{u.email}</td>
-                <td className="px-4 py-3 text-slate-300">{u.role}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={
-                      u.active ? 'text-emerald-400' : 'text-red-400'
-                    }
-                  >
-                    {u.active ? 'sim' : 'não'}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    className="text-xs text-slate-500 hover:text-white"
-                    onClick={() =>
-                      toggleActive.mutate({ id: u.id, active: !u.active })
-                    }
-                  >
-                    {u.active ? 'Desativar' : 'Ativar'}
-                  </button>
-                </td>
-              </tr>
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-12 bg-slate-800 rounded-lg animate-pulse" />
             ))}
-          </tbody>
-        </table>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="text-left px-6 py-4 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Usuário
+                </th>
+                <th className="text-left px-6 py-4 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Role
+                </th>
+                <th className="text-left px-6 py-4 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Status
+                </th>
+                <th className="text-left px-6 py-4 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Criado em
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {users?.map((user) => (
+                <tr
+                  key={user.id}
+                  className="border-b border-slate-800 last:border-0 hover:bg-slate-800/50 transition-colors"
+                >
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
+                        {user.role === 'ADMIN' ? (
+                          <Shield className="w-4 h-4 text-violet-400" />
+                        ) : (
+                          <UserIcon className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-white text-sm font-medium">
+                          {user.name}
+                        </p>
+                        <p className="text-slate-400 text-xs">{user.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={cn(
+                        'px-2 py-1 rounded text-xs font-medium border',
+                        ROLE_STYLES[user.role] ?? ROLE_STYLES.VIEWER,
+                      )}
+                    >
+                      {user.role}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-emerald-400 text-xs">● Ativo</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-slate-400 text-sm">
+                      {formatDate(user.id)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
-  )
+  );
 }

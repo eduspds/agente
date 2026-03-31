@@ -1,18 +1,16 @@
-import { Outlet } from 'react-router-dom'
-import Sidebar from '@/components/layout/Sidebar'
-import { useAuth } from '@/hooks/useAuth'
-import { useSocket } from '@/hooks/useSocket'
+import { Outlet } from 'react-router-dom';
+import { Sidebar } from './Sidebar';
+import { useSocket } from '../../hooks/useSocket';
 
-export default function AppLayout() {
-  const { logout } = useAuth()
-  useSocket()
+export function AppLayout() {
+  useSocket(); // Conecta ao WebSocket global
 
   return (
-    <div className="min-h-screen flex bg-slate-950">
-      <Sidebar onLogout={logout} />
-      <main className="flex-1 overflow-auto">
+    <div className="flex h-screen bg-slate-950 overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
     </div>
-  )
+  );
 }

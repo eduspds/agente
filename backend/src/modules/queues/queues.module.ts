@@ -1,35 +1,38 @@
-import { Module, forwardRef } from '@nestjs/common'
-import { BullModule } from '@nestjs/bullmq'
-import { ConfigModule, ConfigService } from '@nestjs/config'
-import { AppConfig } from '../../config/configuration'
-import { QUEUE_MESSAGE_PROCESSING } from './queues.constants'
-import { MessageProducer } from './message.producer'
-import { MessageProcessor } from './message.processor'
-import { MessagesModule } from '../messages/messages.module'
-import { AiModule } from '../ai/ai.module'
-import { PipelineModule } from '../pipeline/pipeline.module'
-import { DashboardModule } from '../dashboard/dashboard.module'
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MessageProducer } from './message.producer';
+import { MessageProcessor } from './message.processor';
+import { QUEUE_MESSAGE_PROCESSING } from './queues.constants';
+import { MessagesModule } from '../messages/messages.module';
+import { AiModule } from '../ai/ai.module';
+import { PipelineModule } from '../pipeline/pipeline.module';
 
 @Module({
   imports: [
     BullModule.forRootAsync({
       imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<AppConfig>) => ({
-        connection: {
-          host: config.get('redis.host', { infer: true }),
-          port: config.get('redis.port', { infer: true }),
-          password: config.get('redis.password', { infer: true }) || undefined,
+      useFactory: (config: ConfigService) => ({
+        redis: {
+          host: config.get<string>('redis.host') ?? 'localhost',
+          port: config.get<number>('redis.port') ?? 6379,
+          password: config.get<string>('redis.password') || undefined,
+        },
+        defaultJobOptions: {
+          removeOnComplete: 100,
+          removeOnFail: false,
         },
       }),
+      inject: [ConfigService],
     }),
-    BullModule.registerQueue({ name: QUEUE_MESSAGE_PROCESSING }),
+    BullModule.registerQueue({
+      name: QUEUE_MESSAGE_PROCESSING,
+    }),
     MessagesModule,
     AiModule,
     PipelineModule,
-    forwardRef(() => DashboardModule),
   ],
   providers: [MessageProducer, MessageProcessor],
-  exports: [BullModule, MessageProducer],
+  exports: [MessageProducer, BullModule],
 })
 export class QueuesModule {}

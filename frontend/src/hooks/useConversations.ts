@@ -1,26 +1,20 @@
-import { useQuery } from '@tanstack/react-query'
-import api from '@/lib/api'
-import type { ConversationRow, ConversationDetail } from '@/types/models'
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import type { PaginatedResponse, Lead } from '../types/models';
 
-export function useConversations() {
+export function useConversations(filters: { status?: string; search?: string } = {}) {
   return useQuery({
-    queryKey: ['conversations'],
-    staleTime: 30000,
+    queryKey: ['conversations', filters],
     queryFn: async () => {
-      const { data } = await api.get<ConversationRow[]>('/conversations')
-      return data
+      const params = new URLSearchParams();
+      if (filters.status) params.set('status', filters.status);
+      if (filters.search) params.set('search', filters.search);
+      const { data } = await api.get<PaginatedResponse<Lead>>(
+        `/leads?${params.toString()}`,
+      );
+      return data;
     },
-  })
-}
-
-export function useConversationDetail(leadId: string | undefined) {
-  return useQuery({
-    queryKey: ['conversation', leadId],
-    enabled: Boolean(leadId),
-    staleTime: 30000,
-    queryFn: async () => {
-      const { data } = await api.get<ConversationDetail>(`/conversations/${leadId as string}`)
-      return data
-    },
-  })
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
 }

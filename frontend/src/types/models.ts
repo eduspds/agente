@@ -1,95 +1,117 @@
+// ─── Modelos de domínio do frontend ──────────────────────────────────────────
+// chatId NUNCA incluído (regra crítica 7.1)
+
 export type LeadStatus =
   | 'NOVO'
   | 'EM_QUALIFICACAO'
   | 'QUALIFICADO'
   | 'DESQUALIFICADO'
   | 'ESPECIALISTA'
+  | 'PENDENTE_IDENTIFICACAO';
+
+export type Intent = 'NEGOCIACAO' | 'SUPORTE' | 'SOCIAL';
+export type Sentiment = 'POSITIVO' | 'NEUTRO' | 'NEGATIVO';
+export type Role = 'ADMIN' | 'AGENT' | 'VIEWER';
+export type Source = 'AI' | 'HUMAN' | 'SYSTEM';
 
 export interface Lead {
-  id: string
-  chatId: string
-  phone: string
-  name: string | null
-  plate: string | null
-  email: string | null
-  status: LeadStatus
-  intent: string | null
-  sentiment: string | null
-  confidenceScore: number | null
-  priorityScore: number | null
-  needsHumanReview: boolean
-  lastMessageAt: string | null
-  createdAt: string
-  updatedAt: string
+  id: string;
+  tenantId: string;
+  phone: string | null;
+  name: string | null;
+  plate: string | null;
+  email: string | null;
+  status: LeadStatus;
+  intent: Intent | null;
+  sentiment: Sentiment | null;
+  confidenceScore: number | null;
+  priorityScore: number | null;
+  needsHumanReview: boolean;
+  summary: string | null;
+  missingFields: string[];
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface LeadsListResponse {
-  items: Lead[]
-  nextCursor?: string
+export interface LeadWithMessages extends Lead {
+  messages: Message[];
+}
+
+export interface Message {
+  id: string;
+  fromMe: boolean;
+  body: string;
+  timestamp: string;
+  processed: boolean;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  tenantId: string;
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: User;
+}
+
+export interface AuditLog {
+  id: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  source: Source;
+  createdAt: string;
+  user: Pick<User, 'id' | 'name' | 'email'> | null;
+}
+
+export interface FunnelEvent {
+  id: string;
+  fromStatus: LeadStatus;
+  toStatus: LeadStatus;
+  reason: string | null;
+  triggeredBy: string;
+  createdAt: string;
+}
+
+export interface AiAnalysis {
+  id: string;
+  intent: string;
+  sentiment: string;
+  confidenceScore: number;
+  extractedFields: Record<string, string | null>;
+  promptVersion: number;
+  cacheHit: boolean;
+  tokensUsed: number | null;
+  latencyMs: number | null;
+  createdAt: string;
+}
+
+export interface LeadHistory {
+  auditLogs: AuditLog[];
+  funnelEvents: FunnelEvent[];
+  aiAnalyses: AiAnalysis[];
 }
 
 export interface DashboardStats {
-  totalLeads: number
-  byStatus: Record<string, number>
-  messages24h: number
-  recent: Array<{
-    id: string
-    chatId: string
-    phone: string
-    name: string | null
-    status: LeadStatus
-    lastMessageAt: string | null
-    needsHumanReview: boolean
-  }>
+  totalActive: number;
+  statusCounts: Record<LeadStatus, number>;
+  recentLeadsCount: number;
+  needsHumanReviewCount: number;
+  topPriorityLeads: Partial<Lead>[];
 }
 
-export interface ConversationRow {
-  id: string
-  chatId: string
-  phone: string
-  name: string | null
-  status: LeadStatus
-  lastMessageAt: string | null
-  needsHumanReview: boolean
-  messages: Array<{
-    id: string
-    body: string
-    fromMe: boolean
-    timestamp: string
-  }>
-}
-
-export interface ConversationDetail {
-  lead: {
-    id: string
-    chatId: string
-    phone: string
-    name: string | null
-    plate: string | null
-    email: string | null
-    status: LeadStatus
-    intent: string | null
-    sentiment: string | null
-    confidenceScore: number | null
-    needsHumanReview: boolean
-    lastMessageAt: string | null
-  }
-  messages: Array<{
-    id: string
-    messageId: string
-    fromMe: boolean
-    body: string
-    timestamp: string
-    processed: boolean
-  }>
-}
-
-export interface UserRow {
-  id: string
-  email: string
-  name: string
-  role: 'ADMIN' | 'AGENT'
-  active: boolean
-  createdAt: string
-  updatedAt: string
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    limit: number;
+    hasNextPage: boolean;
+    nextCursor: string | null;
+    total: number;
+  };
 }

@@ -1,26 +1,70 @@
-import { useQuery } from '@tanstack/react-query'
-import api from '@/lib/api'
-import type { LeadStatus, LeadsListResponse } from '@/types/models'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import type { Lead, LeadStatus, PaginatedResponse } from '../types/models';
 
 interface LeadFilters {
-  status?: LeadStatus
-  cursor?: string
-  take?: number
+  status?: LeadStatus;
+  cursor?: string;
+  limit?: number;
+  needsHumanReview?: boolean;
+  search?: string;
 }
 
 export function useLeads(filters: LeadFilters = {}) {
-  const { status, cursor, take = 50 } = filters
-
   return useQuery({
-    queryKey: ['leads', status ?? 'all', cursor ?? 'start'],
-    staleTime: 30000,
+    queryKey: ['leads', filters],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      params.set('take', String(Math.min(take, 50)))
-      if (status) params.set('status', status)
-      if (cursor) params.set('cursor', cursor)
-      const { data } = await api.get<LeadsListResponse>(`/leads?${params.toString()}`)
-      return data
+      const params = new URLSearchParams();
+      if (filters.status) params.set('status', filters.status);
+      if (filters.cursor) params.set('cursor', filters.cursor);
+      if (filters.limit) params.set('limit', String(filters.limit));
+      if (filters.needsHumanReview !== undefined)
+        params.set('needsHumanReview', String(filters.needsHumanReview));
+      if (filters.search) params.set('search', filters.search);
+
+      const { data } = await api.get<PaginatedResponse<Lead>>(
+        `/leads?${params.toString()}`,
+      );
+      return data;
     },
-  })
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateLead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<Pick<Lead, 'name' | 'plate' | 'email' | 'status'>> & { disqualifyReason?: string };
+    }) => {
+      const response = await api.patch<Lead>(`/leads/${id}`, data);
+      return response.data;
+    },
+    onSuccess: (lead) => {
+      queryClient.setQueryData(['lead', lead.id], lead);
+      void queryClient.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
+}
+
+export function useReprocessLead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post<{ queued: boolean }>(
+        `/leads/${id}/reprocess`,
+      );
+      return data;
+    },
+    onSuccess: (_, id) => {
+      void queryClient.invalidateQueries({ queryKey: ['lead', id] });
+      void queryClient.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
 }

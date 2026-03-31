@@ -1,97 +1,54 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
-import { maskApiKey } from '../../utils/mask-secret'
-import { PatchTenantAiDto, PatchTenantFunnelDto, PatchTenantGeneralDto } from './dto/tenant.dto'
+import {
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { UpdateTenantSettingsDto } from './dto/tenant.dto';
+import { Prisma, Tenant } from '@prisma/client';
 
 @Injectable()
 export class TenantsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async getMe(tenantId: string) {
-    const tenant = await this.prisma.tenant.findFirst({
-      where: { id: tenantId, active: true },
-    })
-    if (!tenant) throw new NotFoundException('Tenant não encontrado')
-
-    return {
-      id: tenant.id,
-      name: tenant.name,
-      slug: tenant.slug,
-      active: tenant.active,
-      aiProvider: tenant.aiProvider,
-      aiModel: tenant.aiModel,
-      aiApiKeyMasked: maskApiKey(tenant.aiApiKey),
-      aiBaseUrl: tenant.aiBaseUrl,
-      aiTimeoutMs: tenant.aiTimeoutMs,
-      aiConfidThreshold: tenant.aiConfidThreshold,
-      aiPrompt: tenant.aiPrompt,
-      promptVersion: tenant.promptVersion,
-      requiredFields: tenant.requiredFields,
-      specialistName: tenant.specialistName,
-      specialistContact: tenant.specialistContact,
-      createdAt: tenant.createdAt,
-      updatedAt: tenant.updatedAt,
-    }
-  }
-
-  async patchGeneral(tenantId: string, dto: PatchTenantGeneralDto) {
-    const data: {
-      name?: string
-      specialistName?: string | null
-      specialistContact?: string | null
-    } = {}
-    if (dto.name !== undefined) data.name = dto.name
-    if (dto.specialistName !== undefined) data.specialistName = dto.specialistName
-    if (dto.specialistContact !== undefined) data.specialistContact = dto.specialistContact
-
-    await this.prisma.tenant.update({
+  async getSettings(tenantId: string): Promise<Omit<Tenant, never>> {
+    const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      data,
-    })
+    });
 
-    return this.getMe(tenantId)
-  }
-
-  async patchAi(tenantId: string, dto: PatchTenantAiDto) {
-    const data: {
-      aiProvider?: string
-      aiModel?: string
-      aiApiKey?: string
-      aiBaseUrl?: string
-      aiTimeoutMs?: number
-      aiConfidThreshold?: number
-      aiPrompt?: string
-      promptVersion?: { increment: number }
-    } = {}
-
-    if (dto.aiProvider !== undefined) data.aiProvider = dto.aiProvider
-    if (dto.aiModel !== undefined) data.aiModel = dto.aiModel
-    if (dto.aiApiKey !== undefined && dto.aiApiKey.trim() !== '') data.aiApiKey = dto.aiApiKey
-    if (dto.aiBaseUrl !== undefined) data.aiBaseUrl = dto.aiBaseUrl
-    if (dto.aiTimeoutMs !== undefined) data.aiTimeoutMs = dto.aiTimeoutMs
-    if (dto.aiConfidThreshold !== undefined) data.aiConfidThreshold = dto.aiConfidThreshold
-    if (dto.aiPrompt !== undefined) {
-      data.aiPrompt = dto.aiPrompt
-      data.promptVersion = { increment: 1 }
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado');
     }
 
-    if (Object.keys(data).length === 0) return this.getMe(tenantId)
-
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data,
-    })
-
-    return this.getMe(tenantId)
+    return tenant;
   }
 
-  async patchFunnel(tenantId: string, dto: PatchTenantFunnelDto) {
-    if (dto.requiredFields !== undefined) {
-      await this.prisma.tenant.update({
+  async updateSettings(
+    tenantId: string,
+    dto: UpdateTenantSettingsDto,
+  ): Promise<Tenant> {
+    await this.getSettings(tenantId);
+
+    const data: Prisma.TenantUpdateInput = {};
+
+    if (dto.name) data.name = dto.name;
+    if (dto.requiredFields) data.requiredFields = dto.requiredFields;
+    if (dto.aiPrompt) {
+      data.aiPrompt = dto.aiPrompt;
+      // Incrementa versão do prompt automaticamente ao alterar
+      const current = await this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        data: { requiredFields: dto.requiredFields },
-      })
+        select: { promptVersion: true },
+      });
+      data.promptVersion = (current?.promptVersion ?? 1) + 1;
     }
-    return this.getMe(tenantId)
+
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data,
+    });
+  }
+
+  async findById(id: string): Promise<Tenant | null> {
+    return this.prisma.tenant.findUnique({ where: { id } });
   }
 }

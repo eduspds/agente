@@ -1,150 +1,148 @@
 import {
+  ConflictException,
   Injectable,
   NotFoundException,
-  ConflictException,
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common'
-import * as bcrypt from 'bcrypt'
-import * as crypto from 'crypto'
-import { Role } from '@prisma/client'
-import { PrismaService } from '../../prisma/prisma.service'
-import { CreateUserDto, ListUsersQueryDto, PatchUserDto } from './dto/user.dto'
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../../prisma/prisma.service';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { Role, User } from '@prisma/client';
+
+type SafeUser = Omit<User, 'password'>;
+
+const BCRYPT_SALT_ROUNDS = 12;
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private generateInitialPassword(): string {
-    return crypto.randomBytes(9).toString('base64url').slice(0, 12)
-  }
+  async create(
+    tenantId: string,
+    dto: CreateUserDto,
+  ): Promise<SafeUser> {
+    const existing = await this.prisma.user.findUnique({
+      where: { tenantId_email: { tenantId, email: dto.email } },
+    });
 
-  async list(tenantId: string, query: ListUsersQueryDto) {
-    const take = query.take
-    const items = await this.prisma.user.findMany({
-      where: {
-        tenantId,
-        ...(query.activeOnly ? { active: true } : {}),
-      },
-      take: take + 1,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
-
-    let nextCursor: string | undefined
-    if (items.length > take) {
-      const last = items.pop()
-      nextCursor = last?.id
+    if (existing) {
+      throw new ConflictException('E-mail já cadastrado neste tenant');
     }
 
-    return { items, nextCursor }
-  }
-
-  async findOne(id: string, tenantId: string) {
-    const user = await this.prisma.user.findFirst({
-      where: { id, tenantId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
-    if (!user) throw new NotFoundException('Usuário não encontrado')
-    return user
-  }
-
-  async create(tenantId: string, dto: CreateUserDto) {
-    const exists = await this.prisma.user.findFirst({
-      where: { tenantId, email: dto.email },
-    })
-    if (exists) throw new ConflictException('E-mail já cadastrado')
-
-    const plain = this.generateInitialPassword()
-    const password = await bcrypt.hash(plain, 12)
+    const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
     const user = await this.prisma.user.create({
       data: {
         tenantId,
         email: dto.email,
+        password: hashedPassword,
         name: dto.name,
-        role: dto.role,
-        password,
-        active: true,
+        role: dto.role as Role,
       },
+    });
+
+    // Nunca retornar senha
+    const { password: _password, ...safeUser } = user;
+    return safeUser;
+  }
+
+  async findAll(
+    tenantId: string,
+  ): Promise<SafeUser[]> {
+    const users = await this.prisma.user.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'asc' },
       select: {
         id: true,
+        tenantId: true,
         email: true,
         name: true,
         role: true,
-        active: true,
+        isActive: true,
         createdAt: true,
+        updatedAt: true,
       },
-    })
+    });
 
-    return { user, initialPassword: plain }
+    return users;
   }
 
-  async countAdmins(tenantId: string): Promise<number> {
-    return this.prisma.user.count({
-      where: { tenantId, role: Role.ADMIN, active: true },
-    })
+  async findOne(tenantId: string, id: string): Promise<SafeUser> {
+    const user = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        tenantId: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    return user;
   }
 
-  async patch(id: string, tenantId: string, dto: PatchUserDto) {
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateUserDto,
+  ): Promise<SafeUser> {
     const existing = await this.prisma.user.findFirst({
       where: { id, tenantId },
-    })
-    if (!existing) throw new NotFoundException('Usuário não encontrado')
+    });
+    if (!existing) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
 
-    if (existing.role === Role.ADMIN && existing.active) {
-      const remainsAdmin =
-        (dto.role === undefined || dto.role === Role.ADMIN) &&
-        (dto.active === undefined || dto.active === true)
-      if (!remainsAdmin) {
-        const adminCount = await this.countAdmins(tenantId)
-        if (adminCount <= 1) {
-          throw new ForbiddenException('Não é possível remover o último administrador ativo')
-        }
+    if (dto.email && dto.email !== existing.email) {
+      const emailTaken = await this.prisma.user.findUnique({
+        where: { tenantId_email: { tenantId, email: dto.email } },
+      });
+      if (emailTaken) {
+        throw new ConflictException('E-mail já cadastrado neste tenant');
       }
     }
 
-    const data: {
-      name?: string
-      role?: Role
-      active?: boolean
-      password?: string
-    } = {}
+    const passwordHash =
+      dto.password && dto.password.length > 0
+        ? await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS)
+        : undefined;
 
-    if (dto.name !== undefined) data.name = dto.name
-    if (dto.role !== undefined) data.role = dto.role
-    if (dto.active !== undefined) data.active = dto.active
-    if (dto.password !== undefined) {
-      if (dto.password.length < 8) throw new BadRequestException('Senha muito curta')
-      data.password = await bcrypt.hash(dto.password, 12)
-    }
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.email !== undefined && { email: dto.email }),
+        ...(dto.role && { role: dto.role as Role }),
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(passwordHash !== undefined && { password: passwordHash }),
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-    if (Object.keys(data).length === 0) {
-      return this.findOne(id, tenantId)
-    }
+    return updated;
+  }
 
+  async remove(tenantId: string, id: string): Promise<void> {
+    await this.findOne(tenantId, id);
     await this.prisma.user.update({
-      where: { id, tenantId },
-      data,
-    })
-
-    return this.findOne(id, tenantId)
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }

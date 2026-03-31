@@ -1,56 +1,85 @@
-import { Injectable } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { LeadStatus } from '@prisma/client';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async getStats(tenantId: string) {
-    const grouped = await this.prisma.lead.groupBy({
-      by: ['status'],
-      where: { tenantId },
-      _count: { id: true },
-    })
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const byStatus: Record<string, number> = {
-      NOVO: 0,
-      EM_QUALIFICACAO: 0,
-      QUALIFICADO: 0,
-      DESQUALIFICADO: 0,
-      ESPECIALISTA: 0,
-    }
-    for (const row of grouped) {
-      byStatus[row.status] = row._count.id
-    }
+    const [
+      countsByStatus,
+      recentCount,
+      needsReviewCount,
+      topPriority,
+    ] = await Promise.all([
+      // Contagem por status
+      this.prisma.lead.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { id: true },
+      }),
 
-    const totalLeads = await this.prisma.lead.count({ where: { tenantId } })
-    const messages24h = await this.prisma.message.count({
-      where: {
-        tenantId,
-        createdAt: { gte: new Date(Date.now() - 86400000) },
+      // Leads com interação nas últimas 24h
+      this.prisma.lead.count({
+        where: {
+          tenantId,
+          lastMessageAt: { gte: last24h },
+        },
+      }),
+
+      // Leads aguardando revisão humana
+      this.prisma.lead.count({
+        where: { tenantId, needsHumanReview: true },
+      }),
+
+      // Top 5 leads por prioridade
+      this.prisma.lead.findMany({
+        where: {
+          tenantId,
+          status: {
+            notIn: [LeadStatus.DESQUALIFICADO, LeadStatus.PENDENTE_IDENTIFICACAO],
+          },
+        },
+        orderBy: { priorityScore: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          phone: true,
+          name: true,
+          status: true,
+          intent: true,
+          sentiment: true,
+          priorityScore: true,
+          needsHumanReview: true,
+          lastMessageAt: true,
+        },
+      }),
+    ]);
+
+    // Organiza contagens por status em objeto
+    const statusCounts = Object.values(LeadStatus).reduce(
+      (acc, status) => {
+        acc[status] = 0;
+        return acc;
       },
-    })
+      {} as Record<string, number>,
+    );
 
-    const recent = await this.prisma.lead.findMany({
-      where: { tenantId },
-      orderBy: { lastMessageAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        chatId: true,
-        phone: true,
-        name: true,
-        status: true,
-        lastMessageAt: true,
-        needsHumanReview: true,
-      },
-    })
+    for (const item of countsByStatus) {
+      statusCounts[item.status] = item._count.id;
+    }
+
+    const totalActive = Object.values(statusCounts).reduce((a, b) => a + b, 0);
 
     return {
-      totalLeads,
-      byStatus,
-      messages24h,
-      recent,
-    }
+      totalActive,
+      statusCounts,
+      recentLeadsCount: recentCount,
+      needsHumanReviewCount: needsReviewCount,
+      topPriorityLeads: topPriority,
+    };
   }
 }

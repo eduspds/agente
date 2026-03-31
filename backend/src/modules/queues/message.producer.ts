@@ -1,53 +1,90 @@
-import { Injectable, Logger } from '@nestjs/common'
-import { InjectQueue } from '@nestjs/bullmq'
-import { Queue } from 'bullmq'
-import { createHash } from 'crypto'
-import { ConfigService } from '@nestjs/config'
-import { AppConfig } from '../../config/configuration'
-import { QUEUE_MESSAGE_PROCESSING, JOB_PROCESS_MESSAGES } from './queues.constants'
+import { InjectQueue } from '@nestjs/bull';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Queue } from 'bull';
+import {
+  JOB_PROCESS_MESSAGES,
+  ProcessMessagesJobData,
+  QUEUE_MESSAGE_PROCESSING,
+} from './queues.constants';
+import { PrismaService } from '../../prisma/prisma.service';
+import { parseAiSettingsJson } from '../tenants/tenant-ai.runtime';
 
 @Injectable()
 export class MessageProducer {
-  private readonly logger = new Logger(MessageProducer.name)
+  private readonly logger = new Logger(MessageProducer.name);
+  private readonly defaultDebounceMs: number;
 
   constructor(
-    @InjectQueue(QUEUE_MESSAGE_PROCESSING) private queue: Queue,
-    private config: ConfigService<AppConfig>,
-  ) {}
-
-  private jobIdFor(tenantId: string, chatId: string): string {
-    return createHash('sha256').update(`${tenantId}:${chatId}`).digest('hex')
+    @InjectQueue(QUEUE_MESSAGE_PROCESSING)
+    private readonly messageQueue: Queue<ProcessMessagesJobData>,
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    this.defaultDebounceMs =
+      this.configService.get<number>('queue.debounceMs') ?? 180_000;
   }
 
-  async scheduleProcessing(chatId: string, tenantId: string): Promise<void> {
-    const jobId = this.jobIdFor(tenantId, chatId)
-    const debounceMs = this.config.get('queue.debounceMs', { infer: true }) ?? 180000
+  async scheduleProcessing(
+    tenantId: string,
+    chatId: string,
+    leadId: string,
+  ): Promise<void> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { aiSettings: true },
+    });
+    const rt = parseAiSettingsJson(tenant?.aiSettings, {
+      provider: this.configService.get<string>('ai.provider') ?? 'openai',
+      apiKey: this.configService.get<string>('ai.apiKey') ?? '',
+      model: this.configService.get<string>('ai.model') ?? 'gpt-4o-mini',
+      baseUrl:
+        this.configService.get<string>('ai.baseUrl') ??
+        'https://api.openai.com/v1',
+      timeoutMs: this.configService.get<number>('ai.timeoutMs') ?? 30_000,
+      maxTokens: this.configService.get<number>('ai.maxTokens') ?? 1000,
+      confidenceThreshold:
+        this.configService.get<number>('ai.confidenceThreshold') ?? 0.6,
+    });
+    const debounceMs = Math.round(
+      Math.min(60, Math.max(1, rt.debounceMinutes)) * 60_000,
+    );
+    // jobId determinístico por chatId garante que só existe 1 job pendente por conversa
+    const jobId = `${tenantId}:${chatId}`;
 
-    const existing = await this.queue.getJob(jobId)
-    if (existing) {
-      const state = await existing.getState()
+    // Remove job pendente anterior (debounce — seção 9.1)
+    const existingJob = await this.messageQueue.getJob(jobId);
+    if (existingJob) {
+      const state = await existingJob.getState();
       if (state === 'delayed' || state === 'waiting') {
-        await existing.remove()
-        this.logger.debug(`Job anterior removido: ${jobId}`)
+        await existingJob.remove();
+        this.logger.debug(
+          `Job anterior removido para debounce: ${jobId}`,
+        );
       }
     }
 
-    await this.queue.add(
-      JOB_PROCESS_MESSAGES,
-      { chatId, tenantId },
-      {
-        jobId,
-        delay: debounceMs,
-        attempts: this.config.get('queue.maxRetries', { infer: true }) ?? 3,
-        backoff: {
-          type: 'exponential',
-          delay: this.config.get('queue.backoffMs', { infer: true }) ?? 5000,
-        },
-        removeOnComplete: 100,
-        removeOnFail: 50,
-      },
-    )
+    const jobData: ProcessMessagesJobData = {
+      tenantId,
+      chatId,
+      leadId,
+      triggeredAt: new Date().toISOString(),
+    };
 
-    this.logger.log(`Job agendado: ${jobId} (delay: ${debounceMs}ms)`)
+    await this.messageQueue.add(JOB_PROCESS_MESSAGES, jobData, {
+      jobId,
+      delay: debounceMs,
+      attempts: this.configService.get<number>('queue.maxRetries') ?? 3,
+      backoff: {
+        type: 'exponential',
+        delay: this.configService.get<number>('queue.backoffMs') ?? 5_000,
+      },
+      removeOnComplete: 100,   // mantém últimos 100 jobs completados para debug
+      removeOnFail: false,     // mantém falhos para análise na DLQ
+    });
+
+    this.logger.log(
+      `Job agendado: ${jobId} — delay=${debounceMs}ms (padrão fila=${this.defaultDebounceMs}ms)`,
+    );
   }
 }

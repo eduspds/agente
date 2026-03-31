@@ -1,129 +1,264 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { Lead, LeadStatus, Source } from '@prisma/client'
-import { PrismaService } from '../../prisma/prisma.service'
-import { CreateLeadDto, ListLeadsQueryDto, PatchLeadDto } from './dto/lead.dto'
-import { MessageProducer } from '../queues/message.producer'
-import { MessagesService } from '../messages/messages.service'
+import {
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { PipelineService } from '../pipeline/pipeline.service';
+import { MessageProducer } from '../queues/message.producer';
+import { UpdateLeadDto, LeadFiltersDto } from './dto/lead.dto';
+import { Lead, LeadStatus, Source } from '@prisma/client';
 
 @Injectable()
 export class LeadsService {
   constructor(
-    private prisma: PrismaService,
-    private messageProducer: MessageProducer,
-    private messagesService: MessagesService,
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly pipelineService: PipelineService,
+    private readonly messageProducer: MessageProducer,
   ) {}
 
-  async create(tenantId: string, dto: CreateLeadDto): Promise<Lead> {
-    return this.prisma.lead.create({
-      data: {
-        tenantId,
-        chatId: dto.chatId,
-        phone: dto.phone,
-        name: dto.name ?? null,
-        plate: dto.plate ?? null,
-        email: dto.email ?? null,
-        status: dto.status ?? LeadStatus.NOVO,
-      },
-    })
-  }
+  async findAll(
+    tenantId: string,
+    filters: LeadFiltersDto,
+  ) {
+    const where = {
+      tenantId,
+      ...(filters.status && { status: filters.status as LeadStatus }),
+      ...(filters.needsHumanReview !== undefined && {
+        needsHumanReview: filters.needsHumanReview,
+      }),
+      ...(filters.search && {
+        OR: [
+          { name: { contains: filters.search, mode: 'insensitive' as const } },
+          { phone: { contains: filters.search } },
+          { plate: { contains: filters.search, mode: 'insensitive' as const } },
+          { email: { contains: filters.search, mode: 'insensitive' as const } },
+        ],
+      }),
+    };
 
-  async list(tenantId: string, query: ListLeadsQueryDto) {
-    const take = query.take
+    // Paginação cursor-based — mais eficiente que offset em grandes volumes
     const items = await this.prisma.lead.findMany({
       where: {
-        tenantId,
-        ...(query.status ? { status: query.status } : {}),
+        ...where,
+        ...(filters.cursor && {
+          createdAt: { lt: new Date(filters.cursor) },
+        }),
       },
-      take: take + 1,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      ...(query.cursor
-        ? {
-            cursor: { id: query.cursor },
-            skip: 1,
-          }
-        : {}),
-    })
+      orderBy: [{ priorityScore: 'desc' }, { lastMessageAt: 'desc' }],
+      take: filters.limit + 1, // busca +1 para detectar se há próxima página
+      select: {
+        id: true,
+        tenantId: true,
+        phone: true,
+        name: true,
+        plate: true,
+        email: true,
+        status: true,
+        intent: true,
+        sentiment: true,
+        confidenceScore: true,
+        priorityScore: true,
+        needsHumanReview: true,
+        summary: true,
+        missingFields: true,
+        lastMessageAt: true,
+        createdAt: true,
+        updatedAt: true,
+        // chatId NUNCA exposto no frontend (regra crítica 7.1)
+      },
+    });
 
-    let nextCursor: string | undefined
-    if (items.length > take) {
-      const last = items.pop()
-      nextCursor = last?.id
-    }
+    const hasNextPage = items.length > filters.limit;
+    const data = hasNextPage ? items.slice(0, -1) : items;
+    const nextCursor = hasNextPage
+      ? data[data.length - 1]?.createdAt.toISOString()
+      : null;
 
-    return { items, nextCursor }
+    return {
+      data,
+      pagination: {
+        limit: filters.limit,
+        hasNextPage,
+        nextCursor,
+        total: await this.prisma.lead.count({ where }),
+      },
+    };
   }
 
-  async findOne(id: string, tenantId: string): Promise<Lead> {
+  async findOne(tenantId: string, id: string) {
     const lead = await this.prisma.lead.findFirst({
       where: { id, tenantId },
-    })
-    if (!lead) throw new NotFoundException('Lead não encontrado')
-    return lead
-  }
+      include: {
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            fromMe: true,
+            body: true,
+            timestamp: true,
+            processed: true,
+          },
+        },
+      },
+    });
 
-  async patch(
-    id: string,
-    tenantId: string,
-    dto: PatchLeadDto,
-    userId: string,
-  ): Promise<Lead> {
-    const existing = await this.findOne(id, tenantId)
-
-    const updates: Record<string, unknown> = {}
-    const audit: Array<{ field: string; oldValue: string | null; newValue: string | null }> = []
-
-    const track = (field: keyof PatchLeadDto, oldVal: string | null | undefined, newVal: unknown) => {
-      if (newVal === undefined) return
-      const nv = newVal === null ? null : String(newVal)
-      const ov = oldVal === null || oldVal === undefined ? null : String(oldVal)
-      if (ov !== nv) {
-        audit.push({ field, oldValue: ov, newValue: nv })
-        updates[field] = newVal === null ? null : newVal
-      }
+    if (!lead) {
+      throw new NotFoundException('Lead não encontrado');
     }
 
-    track('name', existing.name, dto.name)
-    track('plate', existing.plate, dto.plate)
-    track('email', existing.email, dto.email)
-    track('status', existing.status, dto.status)
-    track('intent', existing.intent, dto.intent)
-    track('sentiment', existing.sentiment, dto.sentiment)
+    // Remove chatId da resposta (regra crítica 7.1)
+    const { chatId: _chatId, ...safeLead } = lead;
+    return safeLead;
+  }
 
-    if (Object.keys(updates).length === 0) return existing
-
-    const updated = await this.prisma.lead.update({
+  async update(
+    tenantId: string,
+    id: string,
+    dto: UpdateLeadDto,
+    userId: string,
+  ): Promise<Lead> {
+    const lead = await this.prisma.lead.findFirst({
       where: { id, tenantId },
-      data: updates as {
-        name?: string | null
-        plate?: string | null
-        email?: string | null
-        status?: LeadStatus
-        intent?: string | null
-        sentiment?: string | null
-      },
-    })
+    });
 
-    for (const row of audit) {
-      await this.prisma.auditLog.create({
-        data: {
+    if (!lead) {
+      throw new NotFoundException('Lead não encontrado');
+    }
+
+    const humanOverrideFields = new Set(lead.humanOverrideFields);
+    const auditEntries = [];
+    const updateData: Record<string, unknown> = {};
+
+    // Campos editáveis pelo humano — registra override e AuditLog
+    const editableFields = ['name', 'plate', 'email'] as const;
+    for (const field of editableFields) {
+      const newValue = dto[field];
+      if (newValue !== undefined && newValue !== lead[field]) {
+        updateData[field] = newValue;
+        humanOverrideFields.add(field); // marca como protegido de sobrescrita por IA
+        auditEntries.push({
           tenantId,
           leadId: id,
           userId,
-          field: row.field,
-          oldValue: row.oldValue,
-          newValue: row.newValue,
+          field,
+          oldValue: lead[field] ?? undefined,
+          newValue,
           source: Source.HUMAN,
-        },
-      })
+        });
+      }
     }
 
-    return updated
+    if (dto.status && dto.status !== lead.status) {
+      // Delega ao PipelineService para registrar FunnelEvent
+      return this.pipelineService.manualStatusChange(
+        tenantId,
+        id,
+        dto.status as LeadStatus,
+        userId,
+        dto.disqualifyReason,
+      );
+    }
+
+    if (dto.disqualifyReason && dto.disqualifyReason !== lead.disqualifyReason) {
+      updateData.disqualifyReason = dto.disqualifyReason;
+    }
+
+    if (Object.keys(updateData).length === 0 && auditEntries.length === 0) {
+      return lead;
+    }
+
+    updateData.humanOverrideFields = Array.from(humanOverrideFields);
+
+    const updated = await this.prisma.lead.update({
+      where: { id },
+      data: updateData,
+    });
+
+    if (auditEntries.length > 0) {
+      await this.auditService.logMany(auditEntries);
+    }
+
+    return updated;
   }
 
-  async reprocess(id: string, tenantId: string): Promise<{ ok: boolean }> {
-    const lead = await this.findOne(id, tenantId)
-    await this.messagesService.resetProcessedForLead(lead.id, tenantId)
-    await this.messageProducer.scheduleProcessing(lead.chatId, tenantId)
-    return { ok: true }
+  async reprocess(tenantId: string, id: string): Promise<{ queued: boolean }> {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead não encontrado');
+    }
+
+    // Reseta flags de revisão e recoloca na fila
+    await this.prisma.lead.update({
+      where: { id },
+      data: { needsHumanReview: false },
+    });
+
+    // Marca mensagens como não processadas para reprocessamento
+    await this.prisma.message.updateMany({
+      where: { tenantId, leadId: id },
+      data: { processed: false },
+    });
+
+    await this.messageProducer.scheduleProcessing(
+      tenantId,
+      lead.chatId,
+      lead.id,
+    );
+
+    return { queued: true };
+  }
+
+  async getHistory(tenantId: string, id: string) {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead não encontrado');
+    }
+
+    const [auditLogs, funnelEvents, aiAnalyses] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: { tenantId, leadId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      }),
+      this.prisma.funnelEvent.findMany({
+        where: { tenantId, leadId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      this.prisma.aiAnalysis.findMany({
+        where: { tenantId, leadId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          intent: true,
+          sentiment: true,
+          confidenceScore: true,
+          extractedFields: true,
+          promptVersion: true,
+          cacheHit: true,
+          tokensUsed: true,
+          latencyMs: true,
+          createdAt: true,
+          // promptSent e rawResponse disponíveis apenas via /debug
+        },
+      }),
+    ]);
+
+    return { auditLogs, funnelEvents, aiAnalyses };
   }
 }

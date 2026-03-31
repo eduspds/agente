@@ -1,40 +1,62 @@
 import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
   CallHandler,
+  ExecutionContext,
+  Injectable,
   Logger,
-} from '@nestjs/common'
-import { Observable } from 'rxjs'
-import { tap } from 'rxjs/operators'
-import { Request, Response } from 'express'
+  NestInterceptor,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
+import { Observable } from 'rxjs';
+import { tap } from 'rxjs/operators';
+import { JwtPayload } from '../guards/tenant.guard';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('HTTP')
+  private readonly logger = new Logger('HTTP');
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<Request>()
-    const { method, url } = request
-    const tenantId = (request.headers['x-tenant-id'] as string) ?? 'unknown'
-    const start = Date.now()
+    const ctx = context.switchToHttp();
+    const request = ctx.getRequest<Request>();
+    const response = ctx.getResponse<Response>();
+    const start = Date.now();
 
     return next.handle().pipe(
-      tap(() => {
-        const response = context.switchToHttp().getResponse<Response>()
-        const duration = Date.now() - start
-        this.logger.log(
-          JSON.stringify({
+      tap({
+        next: () => {
+          const duration = Date.now() - start;
+          const user = request.user as JwtPayload | undefined;
+
+          const logEntry = {
             level: 'info',
             timestamp: new Date().toISOString(),
-            method,
-            path: url,
+            method: request.method,
+            path: request.url,
             statusCode: response.statusCode,
             duration: `${duration}ms`,
-            tenantId,
-          }),
-        )
+            tenantId: user?.tenantId ?? request.tenantId ?? 'anonymous',
+            userId: user?.sub ?? 'anonymous',
+          };
+
+          this.logger.log(JSON.stringify(logEntry));
+        },
+        error: (error: Error) => {
+          const duration = Date.now() - start;
+          const user = request.user as JwtPayload | undefined;
+
+          const logEntry = {
+            level: 'error',
+            timestamp: new Date().toISOString(),
+            method: request.method,
+            path: request.url,
+            statusCode: response.statusCode || 500,
+            duration: `${duration}ms`,
+            tenantId: user?.tenantId ?? 'anonymous',
+            error: error.message,
+          };
+
+          this.logger.error(JSON.stringify(logEntry));
+        },
       }),
-    )
+    );
   }
 }
